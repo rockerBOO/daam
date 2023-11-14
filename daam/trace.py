@@ -29,8 +29,8 @@ class DiffusionHeatMapHooker(AggregateHooker):
             save_heads: bool = False,
             data_dir: str = None
     ):
-        self.width = width
-        self.height = height
+        self.img_width = width
+        self.img_height = height
         self.all_heat_maps = RawHeatMapCollection()
         h = (pipeline.unet.config.sample_size * pipeline.vae_scale_factor)
         self.latent_hw = 4096 if h == 512 else 9216  # 64x64 or 96x96 depending on if it's 2.0-v or 2.0
@@ -45,8 +45,8 @@ class DiffusionHeatMapHooker(AggregateHooker):
             UNetCrossAttentionHooker(
                 x,
                 self,
-                img_width=self.width,
-                img_height=self.height,
+                img_width=width,
+                img_height=height,
                 layer_idx=idx,
                 latent_hw=self.latent_hw,
                 load_heads=load_heads,
@@ -108,6 +108,11 @@ class DiffusionHeatMapHooker(AggregateHooker):
             factors = set(factors)
 
         all_merges = []
+
+        def calc_factor_base(w, h):
+            z = max(w/64, h/64)
+            factor_b = min(w, h) * z
+            return factor_b
 
         with auto_autocast(dtype=torch.float32):
             for (factor, layer, head), heat_map in heat_maps:
@@ -221,7 +226,7 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
     @torch.no_grad()
-    def _unravel_attn(self, x, value):
+    def _unravel_attn(self, x):
         # type: (torch.Tensor) -> torch.Tensor
         # x shape: (heads, height * width, tokens)
         """
@@ -289,13 +294,10 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         factor = int(math.sqrt(self.latent_hw // attention_probs.shape[1]))
 
         # compute shape factor
-        factor = int(math.sqrt(self.latent_hw // attention_probs.shape[1]))
         self.trace._gen_idx += 1
 
-        # skip if too large
         if attention_probs.shape[-1] == self.context_size and factor != 8:
-            # shape: (batch_size, 64 // factor, 64 // factor, 77)
-            maps = self._unravel_attn(attention_probs, value)
+            maps = self._unravel_attn(attention_probs)
 
             for head_idx, heatmap in enumerate(maps):
                 self.heat_maps.update(factor, self.layer_idx, head_idx, heatmap)
