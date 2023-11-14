@@ -1,12 +1,9 @@
-scikit-image
-diffusers==0.16.1
-spacy
-gradio
-ftfy
-transformers==4.27.4
+# diffusers==0.16.1
+transformers
+accelerate
 pandas
 numba
 nltk
 inflect
 joblib
-accelerate==0.18.0
+ftfy

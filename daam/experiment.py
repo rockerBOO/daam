@@ -148,6 +148,7 @@ class GenerationExperiment:
 
         (path / self.subtype).mkdir(parents=True, exist_ok=True)
         torch.save(self, path / self.subtype / 'generation.pt')
+        print(self.image)
         self.image.save(path / self.subtype / 'output.png')
 
         with (path / 'prompt.txt').open('w') as f:
@@ -192,15 +193,12 @@ class GenerationExperiment:
             vocab = UNUSED_LABELS
 
         if composite:
-            try:
-                im = PIL.Image.open(self.path / self.subtype / f'composite.{pred_prefix}.pred.png')
-                im = np.array(im)
+            im = PIL.Image.open(self.path / self.subtype / f'composite.{pred_prefix}.pred.png')
+            im = np.array(im)
 
-                for mask_idx in np.unique(im):
-                    mask = torch.from_numpy((im == mask_idx).astype(np.float32))
-                    _add_mask(masks, vocab[mask_idx], mask, simplify80)
-            except FileNotFoundError:
-                pass
+            for mask_idx in np.unique(im):
+                mask = torch.from_numpy((im == mask_idx).astype(np.float32))
+                _add_mask(masks, vocab[mask_idx], mask, simplify80)
         else:
             for mask_path in (self.path / self.subtype).glob(f'*.{pred_prefix}.pred.png'):
                 mask = load_mask(str(mask_path))
@@ -248,11 +246,8 @@ class GenerationExperiment:
             tokenizer = self.tokenizer
 
         for word in self.prompt.split(' '):
-            try:
-                path = self.save_heat_map(word, tokenizer, crop=crop)
-                path_map[word] = path
-            except:
-                pass
+            path = self.save_heat_map(word, tokenizer, crop=crop)
+            path_map[word] = path
 
         return path_map
 

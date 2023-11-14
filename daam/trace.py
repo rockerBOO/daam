@@ -23,11 +23,15 @@ class DiffusionHeatMapHooker(AggregateHooker):
             self,
             pipeline:
             StableDiffusionPipeline,
+            width: int = 512,
+            height: int = 512,
             low_memory: bool = False,
             load_heads: bool = False,
             save_heads: bool = False,
             data_dir: str = None
     ):
+        self.width = width
+        self.height = height
         self.all_heat_maps = RawHeatMapCollection()
         h = (pipeline.unet.config.sample_size * pipeline.vae_scale_factor)
         self.latent_hw = 4096 if h == 512 else 9216  # 64x64 or 96x96 depending on if it's 2.0-v or 2.0
@@ -42,6 +46,8 @@ class DiffusionHeatMapHooker(AggregateHooker):
             UNetCrossAttentionHooker(
                 x,
                 self,
+                img_width=self.width,
+                img_height=self.height,
                 layer_idx=idx,
                 latent_hw=self.latent_hw,
                 load_heads=load_heads,
@@ -78,7 +84,7 @@ class DiffusionHeatMapHooker(AggregateHooker):
         )
 
     def compute_global_heat_map(self, prompt=None, factors=None, head_idx=None, layer_idx=None, normalize=False):
-        # type: (str, List[float], int, int, bool) -> GlobalHeatMap
+        # type: (str, List[float],  int, int, bool) -> GlobalHeatMap
         """
         Compute the global heat map for the given prompt, aggregating across time (inference steps) and space (different
         spatial transformer block heat maps).
@@ -138,7 +144,7 @@ class PipelineHooker(ObjectHooker[StableDiffusionPipeline]):
     def _hooked_run_safety_checker(hk_self, self: StableDiffusionPipeline, image, *args, **kwargs):
         image, has_nsfw = hk_self.monkey_super('run_safety_checker', image, *args, **kwargs)
 
-        if "image_processor" in self:
+        if self.image_processor:
             if torch.is_tensor(image):
                 images = self.image_processor.postprocess(image, output_type="pil")
             else:
@@ -175,6 +181,9 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
             module: Attention,
             parent_trace: 'trace',
             context_size: int = 77,
+            img_width: int = 512,
+            img_height: int = 512,
+            # weighted: bool = False,
             layer_idx: int = 0,
             latent_hw: int = 9216,
             load_heads: bool = False,
@@ -191,6 +200,13 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         self.save_heads = save_heads
         self.trace = parent_trace
 
+        self.img_height = img_height
+        self.img_width = img_width
+
+        # self.weighted = weighted
+
+        self.method = 'bicubic'
+
         if data_dir is not None:
             data_dir = Path(data_dir)
         else:
@@ -200,7 +216,7 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
     @torch.no_grad()
-    def _unravel_attn(self, x):
+    def _unravel_attn(self, x, value):
         # type: (torch.Tensor) -> torch.Tensor
         # x shape: (heads, height * width, tokens)
         """
@@ -213,17 +229,69 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         Returns:
             `List[Tuple[int, torch.Tensor]]`: the list of heat maps across heads.
         """
+
+        # print(f"shape x {x.shape}")
+        def calc_factor_base(w, h):
+            z = max(w/64, h/64)
+            factor_b = min(w, h) * z
+            return factor_b
+        
+        # factor_base = calc_factor_base(self.img_width, self.img_height)
+        # factor = int(math.sqrt(factor_base // x.shape[1]))
+
+        # weight = torch.full((factor, factor), 1 / factor ** 2, device=x.device)
+        # weight = weight.view(1, 1, factor, factor)
+        
+        # h = int(math.sqrt((self.img_height * x.size(1)) / self.img_width))
+        # w = int(self.img_width * h / self.img_height)
+        
+        # h_fix = w_fix = 64
+        # if h >= w:
+        #     w_fix = int((w * h_fix) / h)
+        # else:
+        #     h_fix = int((h * w_fix) / w)
+
+        # print(w, h,  w_fix,  h_fix)
         h = w = int(math.sqrt(x.size(1)))
+        # w = int(math.sqrt(x.size(2)))
+        # h = int(math.sqrt(max(64, x.size(2) - x.size(2) % 8)))  # round to divisible by 8
+        # w = int(math.sqrt(max(64, x.size(1) - x.size(1) % 8)))  # round to divisible by 8
+
+        # def calc_factor_base(w, h):
+        #     z = max(w/64, h/64)
+        #     factor_b = min(w, h) * z
+        #     return factor_b
+        #
+        # factor_base = calc_factor_base(hk_self.img_width, hk_self.img_height)
+
         maps = []
         x = x.permute(2, 0, 1)
+        # value = value.permute(1, 0, 2)
+        weights = 1
 
         with auto_autocast(dtype=torch.float32):
             for map_ in x:
-                map_ = map_.view(map_.size(0), h, w)
-                map_ = map_[map_.size(0) // 2:]  # Filter out unconditional
-                maps.append(map_)
+                # map_ = map_.unsqueeze(1).view(map_.size(0), 1, h, w)
+                map_ = map_.view(map_.size(0), h,w)
+                # map_ = map_.unsqueeze(1).view(map_.size(0), h, w)
+                # map_ = map_[map_.size(0) // 2:]  # Filter out unconditional
+                # print(f"map shape {map_.shape}")
+                if self.method == 'bicubic':
+                    # map_ = F.interpolate(map_, size=(h_fix, w_fix), mode='bicubic')
+                    # maps.append(map_.squeeze(1))
+                    maps.append(map_)
+                else:
+                    maps.append(F.conv_transpose2d(map_, weight, stride=self.factor).squeeze(1))
+                # maps.append(map_)
+
+        # for m in maps:
+        #     print(f'mamamma {m.shape}')
+
+        # if self.weighted:
+        #     weights = value.norm(p=1, dim=-1, keepdim=True).unsqueeze(-1)
 
         maps = torch.stack(maps, 0)  # shape: (tokens, heads, height, width)
+        # return (weights * maps).sum(1, keepdim=True)
         return maps.permute(1, 0, 2, 3).contiguous()  # shape: (heads, tokens, height, width)
 
     def _save_attn(self, attn_slice: torch.Tensor):
@@ -271,7 +339,7 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         # skip if too large
         if attention_probs.shape[-1] == self.context_size and factor != 8:
             # shape: (batch_size, 64 // factor, 64 // factor, 77)
-            maps = self._unravel_attn(attention_probs)
+            maps = self._unravel_attn(attention_probs, value)
 
             for head_idx, heatmap in enumerate(maps):
                 self.heat_maps.update(factor, self.layer_idx, head_idx, heatmap)
