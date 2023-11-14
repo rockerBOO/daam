@@ -22,11 +22,15 @@ class DiffusionHeatMapHooker(AggregateHooker):
             self,
             pipeline:
             StableDiffusionPipeline,
+            width: int = 512,
+            height: int = 512,
             low_memory: bool = False,
             load_heads: bool = False,
             save_heads: bool = False,
             data_dir: str = None
     ):
+        self.width = width
+        self.height = height
         self.all_heat_maps = RawHeatMapCollection()
         h = (pipeline.unet.config.sample_size * pipeline.vae_scale_factor)
         self.latent_hw = 4096 if h == 512 else 9216  # 64x64 or 96x96 depending on if it's 2.0-v or 2.0
@@ -41,6 +45,8 @@ class DiffusionHeatMapHooker(AggregateHooker):
             UNetCrossAttentionHooker(
                 x,
                 self,
+                img_width=self.width,
+                img_height=self.height,
                 layer_idx=idx,
                 latent_hw=self.latent_hw,
                 load_heads=load_heads,
@@ -77,7 +83,7 @@ class DiffusionHeatMapHooker(AggregateHooker):
         )
 
     def compute_global_heat_map(self, prompt=None, factors=None, head_idx=None, layer_idx=None, normalize=False):
-        # type: (str, List[float], int, int, bool) -> GlobalHeatMap
+        # type: (str, List[float],  int, int, bool) -> GlobalHeatMap
         """
         Compute the global heat map for the given prompt, aggregating across time (inference steps) and space (different
         spatial transformer block heat maps).
@@ -148,7 +154,7 @@ class PipelineHooker(ObjectHooker[StableDiffusionPipeline]):
     def _hooked_run_safety_checker(hk_self, self: StableDiffusionPipeline, image, *args, **kwargs):
         image, has_nsfw = hk_self.monkey_super('run_safety_checker', image, *args, **kwargs)
 
-        if "image_processor" in self:
+        if self.image_processor:
             if torch.is_tensor(image):
                 images = self.image_processor.postprocess(image, output_type="pil")
             else:
@@ -215,7 +221,7 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         self.data_dir.mkdir(parents=True, exist_ok=True)
 
     @torch.no_grad()
-    def _unravel_attn(self, x):
+    def _unravel_attn(self, x, value):
         # type: (torch.Tensor) -> torch.Tensor
         # x shape: (heads, height * width, tokens)
         """
@@ -289,7 +295,7 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         # skip if too large
         if attention_probs.shape[-1] == self.context_size and factor != 8:
             # shape: (batch_size, 64 // factor, 64 // factor, 77)
-            maps = self._unravel_attn(attention_probs)
+            maps = self._unravel_attn(attention_probs, value)
 
             for head_idx, heatmap in enumerate(maps):
                 self.heat_maps.update(factor, self.layer_idx, head_idx, heatmap)

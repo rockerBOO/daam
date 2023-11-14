@@ -71,6 +71,8 @@ def cache_dir() -> Path:
 
 
 def compute_token_merge_indices(tokenizer, prompt: str, word: str, word_idx: int = None, offset_idx: int = 0):
+    print(f"prompt {prompt}")
+    print(f"word {word}")
     merge_idxs = []
     tokens = tokenizer.tokenize(prompt.lower())
     if word_idx is None:
