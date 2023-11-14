@@ -1,6 +1,6 @@
-# diffusers==0.16.1
-transformers
-accelerate
+diffusers==0.21.2
+transformers=4.30.2
+accelerate=0.23.0
 pandas
 numba
 nltk
