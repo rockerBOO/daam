@@ -107,8 +107,8 @@ class DiffusionHeatMapHooker(AggregateHooker):
         with auto_autocast(dtype=torch.float32):
             for (layer, head), heat_map in heat_maps:
                 if (head_idx is None or head_idx == head) and (layer_idx is None or layer_idx == layer):
-                    h = self.img_height
-                    w = self.img_width
+                    h = self.img_height // 8
+                    w = self.img_width // 8
 
                     # shape 77, 1, 48, 80
                     heat_map = heat_map.unsqueeze(1).permute(0, 1, 3, 2)
