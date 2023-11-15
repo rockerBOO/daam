@@ -171,8 +171,9 @@ def main(args):
                 global_heat_map = tc.compute_global_heat_map(prompt=prompt)
                 for word in args.words.split(","):
                     heat_map = global_heat_map.compute_word_heat_map(word)
-                    print(f"Saving daam heatmap to {img_filename}")
-                    heat_map.plot_overlay(out.images[0], out_file=f"{word}-daam.png")
+                    daam_img_filename = f"{word}-daam.png"
+                    print(f"Saving daam heatmap to {daam_img_filename}")
+                    heat_map.plot_overlay(out.images[0], out_file=daam_img_filename)
 
 
 if __name__ == "__main__":
