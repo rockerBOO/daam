@@ -123,6 +123,8 @@ def main(args):
                     callback=tc.time_callback,
                 )
 
+                out.images[0].save('cat.png')
+
                 global_heat_map = tc.compute_global_heat_map(prompt=prompt)
                 for word in args.words.split(","):
                     heat_map = global_heat_map.compute_word_heat_map(word)
