@@ -73,7 +73,7 @@ def main(args):
     #
     #     prompts = new_prompts
 
-    scheduler = DPMSolverMultistepScheduler()
+    # scheduler = DPMSolverMultistepScheduler()
     # prompts = prompts[: args.gen_limit]
     pipe = StableDiffusionPipeline.from_pretrained(
         model_id,
@@ -81,7 +81,7 @@ def main(args):
         use_safetensors=True,
         variant="fp16",
         safety_checker=None,
-        scheduler=scheduler,
+        # scheduler=scheduler,
     )
     pipe = auto_device(pipe)
 
@@ -106,22 +106,24 @@ def main(args):
 
             with trace(
                 pipe,
-                # 512,
-                # 512,
-                384,
-                640,
+                args.width,
+                args.height,
                 low_memory=args.low_memory,
                 save_heads=args.save_heads,
                 load_heads=args.load_heads,
             ) as tc:
                 out = pipe(
                     prompt,
-                    width=384,
-                    height=640,
+                    width=args.width,
+                    height=args.height,
                     num_inference_steps=args.num_timesteps,
                     # generator=gen,
                     callback=tc.time_callback,
                 )
+
+                out_image_filename = f"{prompt}.png"
+                out.images[0].save(out_image_filename)
+                print(f"Save generated image to {out_image_filename}")
 
                 global_heat_map = tc.compute_global_heat_map(prompt=prompt)
                 for word in args.words.split(","):
@@ -154,6 +156,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--seed-offset", type=int, default=0)
     parser.add_argument("--num-timesteps", "-n", type=int, default=15)
+    parser.add_argument("--width", type=int, default=512)
+    parser.add_argument("--height", type=int, default=512)
     parser.add_argument("--all-heads", action="store_true")
     parser.add_argument("--words", type=str)
     parser.add_argument("--random-seed", action="store_true")
