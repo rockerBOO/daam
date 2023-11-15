@@ -82,7 +82,7 @@ class DiffusionHeatMapHooker(AggregateHooker):
             tokenizer=self.pipe.tokenizer,
         )
 
-    def compute_global_heat_map(self, prompt=None, factors=None, head_idx=None, layer_idx=None, normalize=False):
+    def compute_global_heat_map(self, prompt=None, head_idx=None, layer_idx=None, normalize=False):
         # type: (str, List[float],  int, int, bool) -> GlobalHeatMap
         """
         Compute the global heat map for the given prompt, aggregating across time (inference steps) and space (different
@@ -101,36 +101,20 @@ class DiffusionHeatMapHooker(AggregateHooker):
 
         if prompt is None:
             prompt = self.last_prompt
-
-        if factors is None:
-            factors = {0, 1, 2, 4, 8, 16, 32, 64}
-        else:
-            factors = set(factors)
-
+        
         all_merges = []
 
-        def calc_factor_base(w, h):
-            z = max(w/64, h/64)
-            factor_b = min(w, h) * z
-            return factor_b
-
         with auto_autocast(dtype=torch.float32):
-            for (factor, layer, head), heat_map in heat_maps:
-                if factor in factors and (head_idx is None or head_idx == head) and (layer_idx is None or layer_idx == layer):
-                    h = int(math.sqrt((self.img_height * heat_map.size(1)) / self.img_width))
-                    w = int(self.img_width * h / self.img_height)
-
-                    h_fix = w_fix = 64
-                    if h >= w:
-                        w_fix = int((w * h_fix) / h)
-                    else:
-                        h_fix = int((h * w_fix) / w)
+            for (layer, head), heat_map in heat_maps:
+                if (head_idx is None or head_idx == head) and (layer_idx is None or layer_idx == layer):
+                    h = self.img_height
+                    w = self.img_width
 
                     # shape 77, 1, 48, 80
                     heat_map = heat_map.unsqueeze(1).permute(0, 1, 3, 2)
 
                     # The clamping fixes undershoot.
-                    heat_map = F.interpolate(heat_map, size=(w_fix, h_fix), mode='bicubic').clamp_(min=0)
+                    heat_map = F.interpolate(heat_map, size=(w, h), mode='bicubic').clamp_(min=0)
                     all_merges.append(heat_map)
 
             try:
@@ -239,13 +223,14 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         Returns:
             `List[Tuple[int, torch.Tensor]]`: the list of heat maps across heads.
         """
-        h = int(math.sqrt((self.img_height * x.size(1)) / self.img_width))
-        w = int(self.img_width * h / self.img_height)
+        h = int(math.ceil(math.sqrt(x.size(1)*self.img_width / self.img_height)))
+        w = int(math.ceil(math.sqrt(x.size(1)*self.img_height / self.img_width)))
         maps = []
         x = x.permute(2, 0, 1)
 
         with auto_autocast(dtype=torch.float32):
             for map_ in x:
+                #print(map_.shape())
                 map_ = map_.view(map_.size(0), w, h)
                 map_ = map_[map_.size(0) // 2:]  # Filter out unconditional
                 maps.append(map_)
@@ -291,16 +276,14 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         elif self.load_heads:
             attention_probs = self._load_attn()
 
-        factor = int(math.sqrt(self.latent_hw // attention_probs.shape[1]))
-
         # compute shape factor
         self.trace._gen_idx += 1
 
-        if attention_probs.shape[-1] == self.context_size and factor != 8:
+        if attention_probs.shape[-1] == self.context_size:
             maps = self._unravel_attn(attention_probs)
 
             for head_idx, heatmap in enumerate(maps):
-                self.heat_maps.update(factor, self.layer_idx, head_idx, heatmap)
+                self.heat_maps.update(self.layer_idx, head_idx, heatmap)
 
         hidden_states = torch.bmm(attention_probs, value)
         hidden_states = attn.batch_to_head_dim(hidden_states)
