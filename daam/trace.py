@@ -117,7 +117,7 @@ class DiffusionHeatMapHooker(AggregateHooker):
         with auto_autocast(dtype=torch.float32):
             for (factor, layer, head), heat_map in heat_maps:
                 if factor in factors and (head_idx is None or head_idx == head) and (layer_idx is None or layer_idx == layer):
-                    h = int(math.sqrt((self.img_height * heat_map.size(2)) / self.img_width))
+                    h = int(math.sqrt((self.img_height * heat_map.size(1)) / self.img_width))
                     w = int(self.img_width * h / self.img_height)
 
                     h_fix = w_fix = 64
@@ -251,7 +251,7 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
                 maps.append(map_)
 
         maps = torch.stack(maps, 0)  # shape: (tokens, heads, height, width)
-        return maps.permute(1, 0, 3, 2).contiguous()  # shape: (heads, tokens, width, height)
+        return maps.permute(1, 0, 2, 3).contiguous()  # shape: (heads, tokens, width, height)
 
     def _save_attn(self, attn_slice: torch.Tensor):
         torch.save(attn_slice, self.data_dir / f'{self.trace._gen_idx}.pt')
