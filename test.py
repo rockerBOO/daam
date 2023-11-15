@@ -159,7 +159,7 @@ def main(args):
                     prompt,
                     width=args.width,
                     height=args.height,
-                    num_inference_steps=args.num_timesteps,
+                    num_inference_steps=args.steps,
                     generator=gen,
                     callback=tc.time_callback,
                 )
@@ -180,32 +180,24 @@ if __name__ == "__main__":
         description="""
     Test DAAM
 
-    python test.py 
+    accelerate launch test.py "a woman with blonde hair standing on the street" --words "woman,blonde hair,street" --width 384 --height 640 --sampler=dpmsolver++ --steps=15
     """,
         formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument("prompt", type=str)
-    parser.add_argument("--action", "-a", type=str, choices=actions, default=actions[0])
     parser.add_argument("--low-memory", action="store_true")
     parser.add_argument(
         "--model", type=str, default="v1", choices=list(model_id_map.keys())
     )
     parser.add_argument("--output-folder", "-o", type=str)
-    parser.add_argument("--input-folder", "-i", type=str, default="input")
     parser.add_argument("--seed", "-s", type=int, default=0)
-    parser.add_argument("--gen-limit", type=int, default=1000)
-    parser.add_argument("--template", type=str, default="{numeral} {noun}")
-    parser.add_argument(
-        "--template-data-file", "-tdf", type=str, default="template.tsv"
-    )
     parser.add_argument("--seed-offset", type=int, default=0)
-    parser.add_argument("--num-timesteps", "-n", type=int, default=15)
+    parser.add_argument("--steps", "-n", type=int, default=50)
     parser.add_argument("--width", type=int, default=512)
     parser.add_argument("--height", type=int, default=512)
     parser.add_argument("--all-heads", action="store_true")
     parser.add_argument("--words", type=str)
     parser.add_argument("--random-seed", action="store_true")
-    parser.add_argument("--truth-only", action="store_true")
     parser.add_argument("--save-heads", action="store_true")
     parser.add_argument("--load-heads", action="store_true")
 
