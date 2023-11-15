@@ -4,6 +4,11 @@
 
 ![example image](example.jpg)
 
+### Updated with aspect ratio support
+
+Install [PyTorch](https://pytorch.org) for your platform.
+Install DAAM with `git clone https://github.com/rockerBOO/daam && pip install -e daam`.
+
 ### Updated to support Diffusers 0.16.1!
 
 I regularly update this codebase. Please submit an issue if you have any questions.
@@ -14,7 +19,7 @@ See our [documentation](https://castorini.github.io/daam/), hosted by GitHub pag
 
 ## Getting Started
 First, install [PyTorch](https://pytorch.org) for your platform.
-Then, install DAAM with `pip install daam`, unless you want an editable version of the library, in which case do `git clone https://github.com/castorini/daam && pip install -e daam`.
+Then, install DAAM with `git clone https://github.com/rockerBOO/daam && pip install -e daam`.
 Finally, login using `huggingface-cli login` to get many stable diffusion models -- you'll need to get a token at [HuggingFace.co](https://huggingface.co/).
 
 ### Running the Website Demo
