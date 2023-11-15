@@ -17,7 +17,6 @@ from .hook import ObjectHooker, AggregateHooker, UNetCrossAttentionLocator
 
 __all__ = ['trace', 'DiffusionHeatMapHooker', 'GlobalHeatMap']
 
-
 class DiffusionHeatMapHooker(AggregateHooker):
     def __init__(
             self,
@@ -103,14 +102,25 @@ class DiffusionHeatMapHooker(AggregateHooker):
             factors = set(factors)
 
         all_merges = []
-        x = int(np.sqrt(self.latent_hw))
 
         with auto_autocast(dtype=torch.float32):
             for (factor, layer, head), heat_map in heat_maps:
                 if factor in factors and (head_idx is None or head_idx == head) and (layer_idx is None or layer_idx == layer):
-                    heat_map = heat_map.unsqueeze(1)
+                    h = int(math.sqrt((self.img_height * heat_map.size(2)) / self.img_width))
+                    w = int(self.img_width * h / self.img_height)
+
+                    h_fix = w_fix = 64
+                    if h >= w:
+                        w_fix = int((w * h_fix) / h)
+                    else:
+                        h_fix = int((h * w_fix) / w)
+
+                    # shape 77, 1, 48, 80
+                    heat_map = heat_map.unsqueeze(1).permute(0, 1, 3, 2)
+
                     # The clamping fixes undershoot.
-                    all_merges.append(F.interpolate(heat_map, size=(x, x), mode='bicubic').clamp_(min=0))
+                    heat_map = F.interpolate(heat_map, size=(w_fix, h_fix), mode='bicubic').clamp_(min=0)
+                    all_merges.append(heat_map)
 
             try:
                 maps = torch.stack(all_merges, dim=0)
@@ -175,6 +185,8 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
             module: Attention,
             parent_trace: 'trace',
             context_size: int = 77,
+            img_width: int = 512,
+            img_height: int = 512,
             layer_idx: int = 0,
             latent_hw: int = 9216,
             load_heads: bool = False,
@@ -190,6 +202,9 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         self.load_heads = load_heads
         self.save_heads = save_heads
         self.trace = parent_trace
+
+        self.img_height = img_height
+        self.img_width = img_width
 
         if data_dir is not None:
             data_dir = Path(data_dir)
@@ -213,18 +228,19 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         Returns:
             `List[Tuple[int, torch.Tensor]]`: the list of heat maps across heads.
         """
-        h = w = int(math.sqrt(x.size(1)))
+        h = int(math.sqrt((self.img_height * x.size(1)) / self.img_width))
+        w = int(self.img_width * h / self.img_height)
         maps = []
         x = x.permute(2, 0, 1)
 
         with auto_autocast(dtype=torch.float32):
             for map_ in x:
-                map_ = map_.view(map_.size(0), h, w)
+                map_ = map_.view(map_.size(0), w, h)
                 map_ = map_[map_.size(0) // 2:]  # Filter out unconditional
                 maps.append(map_)
 
         maps = torch.stack(maps, 0)  # shape: (tokens, heads, height, width)
-        return maps.permute(1, 0, 2, 3).contiguous()  # shape: (heads, tokens, height, width)
+        return maps.permute(1, 0, 3, 2).contiguous()  # shape: (heads, tokens, width, height)
 
     def _save_attn(self, attn_slice: torch.Tensor):
         torch.save(attn_slice, self.data_dir / f'{self.trace._gen_idx}.pt')
@@ -263,6 +279,8 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
             self._save_attn(attention_probs)
         elif self.load_heads:
             attention_probs = self._load_attn()
+
+        factor = int(math.sqrt(self.latent_hw // attention_probs.shape[1]))
 
         # compute shape factor
         factor = int(math.sqrt(self.latent_hw // attention_probs.shape[1]))

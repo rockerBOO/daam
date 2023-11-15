@@ -29,6 +29,8 @@ def plot_overlay_heat_map(im, heat_map, word=None, out_file=None, crop=None, col
     with auto_autocast(dtype=torch.float32):
         im = np.array(im)
 
+        heat_map = heat_map.permute(1, 0)  # swap width/height
+        # heat_map shape width, height
         if crop is not None:
             heat_map = heat_map.squeeze()[crop:-crop, crop:-crop]
             im = im[crop:-crop, crop:-crop]
