@@ -12,7 +12,7 @@ import torch
 import torch.nn.functional as F
 
 from .evaluate import compute_ioa
-from .utils import compute_token_merge_indices, cached_nlp, auto_autocast
+from .utils import compute_token_merge_indices, cached_nlp, auto_autocast, expand_image
 
 __all__ = ['GlobalHeatMap', 'RawHeatMapCollection', 'WordHeatMap', 'ParsedHeatMap', 'SyntacticHeatMapPair']
 
@@ -78,16 +78,7 @@ class WordHeatMap:
 
     def expand_as(self, image, absolute=False, threshold=None, plot=False, **plot_kwargs):
         # type: (PIL.Image.Image, bool, float, bool, Dict[str, Any]) -> torch.Tensor
-        im = self.heatmap.unsqueeze(0).unsqueeze(0)
-        im = F.interpolate(im.float().detach(), size=(image.size[0], image.size[1]), mode='bicubic')
-
-        if not absolute:
-            im = (im - im.min()) / (im.max() - im.min() + 1e-8)
-
-        if threshold:
-            im = (im > threshold).float()
-
-        im = im.cpu().detach().squeeze()
+        im = expand_image(self.heatmap, image, absolute=absolute, threshold=threshold, plot=plot)
 
         if plot:
             self.plot_overlay(image, **plot_kwargs)

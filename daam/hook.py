@@ -121,3 +121,52 @@ class UNetCrossAttentionLocator(ModuleLocator[Attention]):
                 self.layer_names.extend(names)
 
         return blocks_list
+
+
+class CompVisUNetCrossAttentionLocator(ModuleLocator[Attention]):
+    def __init__(self, restrict: bool = None, locate_middle_block: bool = False):
+        self.restrict = restrict
+        self.layer_names = []
+        self.locate_middle_block = locate_middle_block
+
+    #                UNetModel
+    def locate(self, model ) -> List[Attention]:
+        blocks_list = []
+        # input_names = ['input'] * len(model.input_blocks)
+        # output_names = ['output'] * len(model.output_blocks)
+
+
+        for unet_block in itertools.chain(
+                model.input_blocks,
+                model.output_blocks,
+               [model.mid_block] if self.locate_middle_block else [],
+        ):
+            print(type(unet_block).__name__)
+            for module in unet_block.modules():
+                if 'SpatialTransformer' in module.__class__.__name__:
+                    blocks = []
+
+                    for transformer_block in module.transformer_blocks:
+                        blocks.append(transformer_block.attn2)
+
+                        blocks = [b for idx, b in enumerate(blocks) if self.restrict is None or idx in self.restrict]
+                        blocks_list.extend(blocks)
+
+                        # names = [f'{name}-attn-{i}' for i in range(len(blocks)) if self.restrict is None or i in self.restrict]
+                        # self.layer_names.extend(names)
+
+
+        # for unet_block in itertools.chain(model.input_blocks, model.output_blocks, [model.middle_block]):
+        #     # if 'CrossAttn' in unet_block.__class__.__name__:
+        #     if not layer_idx or i == layer_idx:
+        #         for module in unet_block.modules():
+        #             # if type(module) is SpatialTransformer:
+        #             spatial_transformer = module
+        #             for basic_transformer_block in spatial_transformer.transformer_blocks:
+        #                 blocks.append(basic_transformer_block.attn2)
+        #     i += 1
+        # 
+        # if layer_idx:
+        #     blocks = [blocks[0]]
+
+        return blocks
