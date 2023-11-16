@@ -1,4 +1,4 @@
-from typing import List, Generic, TypeVar, Callable, Union, Any
+from typing import List, Generic, TypeVar
 import functools
 import itertools
 
@@ -7,11 +7,16 @@ from diffusers.models.attention_processor import Attention
 import torch.nn as nn
 
 
-__all__ = ['ObjectHooker', 'ModuleLocator', 'AggregateHooker', 'UNetCrossAttentionLocator']
+__all__ = [
+    "ObjectHooker",
+    "ModuleLocator",
+    "AggregateHooker",
+    "UNetCrossAttentionLocator",
+]
 
 
-ModuleType = TypeVar('ModuleType')
-ModuleListType = TypeVar('ModuleListType', bound=List)
+ModuleType = TypeVar("ModuleType")
+ModuleListType = TypeVar("ModuleListType", bound=List)
 
 
 class ModuleLocator(Generic[ModuleType]):
@@ -34,7 +39,7 @@ class ObjectHooker(Generic[ModuleType]):
 
     def hook(self):
         if self.hooked:
-            raise RuntimeError('Already hooked module')
+            raise RuntimeError("Already hooked module")
 
         self.old_state = dict()
         self.hooked = True
@@ -44,10 +49,10 @@ class ObjectHooker(Generic[ModuleType]):
 
     def unhook(self):
         if not self.hooked:
-            raise RuntimeError('Module is not hooked')
+            raise RuntimeError("Module is not hooked")
 
         for k, v in self.old_state.items():
-            if k.startswith('old_fn_'):
+            if k.startswith("old_fn_"):
                 setattr(self.module, k[7:], v)
 
         self.hooked = False
@@ -56,11 +61,11 @@ class ObjectHooker(Generic[ModuleType]):
         return self
 
     def monkey_patch(self, fn_name, fn):
-        self.old_state[f'old_fn_{fn_name}'] = getattr(self.module, fn_name)
+        self.old_state[f"old_fn_{fn_name}"] = getattr(self.module, fn_name)
         setattr(self.module, fn_name, functools.partial(fn, self.module))
 
     def monkey_super(self, fn_name, *args, **kwargs):
-        return self.old_state[f'old_fn_{fn_name}'](*args, **kwargs)
+        return self.old_state[f"old_fn_{fn_name}"](*args, **kwargs)
 
     def _hook_impl(self):
         raise NotImplementedError
@@ -100,23 +105,31 @@ class UNetCrossAttentionLocator(ModuleLocator[Attention]):
         """
         self.layer_names.clear()
         blocks_list = []
-        up_names = ['up'] * len(model.up_blocks)
-        down_names = ['down'] * len(model.down_blocks)
+        up_names = ["up"] * len(model.up_blocks)
+        down_names = ["down"] * len(model.down_blocks)
 
         for unet_block, name in itertools.chain(
-                zip(model.up_blocks, up_names),
-                zip(model.down_blocks, down_names),
-                zip([model.mid_block], ['mid']) if self.locate_middle_block else [],
+            zip(model.up_blocks, up_names),
+            zip(model.down_blocks, down_names),
+            zip([model.mid_block], ["mid"]) if self.locate_middle_block else [],
         ):
-            if 'CrossAttn' in unet_block.__class__.__name__:
+            if "CrossAttn" in unet_block.__class__.__name__:
                 blocks = []
 
                 for spatial_transformer in unet_block.attentions:
                     for transformer_block in spatial_transformer.transformer_blocks:
                         blocks.append(transformer_block.attn2)
 
-                blocks = [b for idx, b in enumerate(blocks) if self.restrict is None or idx in self.restrict]
-                names = [f'{name}-attn-{i}' for i in range(len(blocks)) if self.restrict is None or i in self.restrict]
+                blocks = [
+                    b
+                    for idx, b in enumerate(blocks)
+                    if self.restrict is None or idx in self.restrict
+                ]
+                names = [
+                    f"{name}-attn-{i}"
+                    for i in range(len(blocks))
+                    if self.restrict is None or i in self.restrict
+                ]
                 blocks_list.extend(blocks)
                 self.layer_names.extend(names)
 
@@ -130,25 +143,28 @@ class CompVisUNetCrossAttentionLocator(ModuleLocator[Attention]):
         self.locate_middle_block = locate_middle_block
 
     #                UNetModel
-    def locate(self, model ) -> List[Attention]:
+    def locate(self, model) -> List[Attention]:
         blocks_list = []
         # input_names = ['input'] * len(model.input_blocks)
         # output_names = ['output'] * len(model.output_blocks)
 
-
         for unet_block in itertools.chain(
-                model.input_blocks,
-                model.output_blocks,
-               [model.mid_block] if self.locate_middle_block else [],
+            model.input_blocks,
+            model.output_blocks,
+            [model.mid_block] if self.locate_middle_block else [],
         ):
             for module in unet_block.modules():
-                if 'SpatialTransformer' in module.__class__.__name__:
+                if "SpatialTransformer" in module.__class__.__name__:
                     blocks = []
 
                     for transformer_block in module.transformer_blocks:
                         blocks.append(transformer_block.attn2)
 
-                        blocks = [b for idx, b in enumerate(blocks) if self.restrict is None or idx in self.restrict]
+                        blocks = [
+                            b
+                            for idx, b in enumerate(blocks)
+                            if self.restrict is None or idx in self.restrict
+                        ]
                         blocks_list.extend(blocks)
 
                         # names = [f'{name}-attn-{i}' for i in range(len(blocks)) if self.restrict is None or i in self.restrict]

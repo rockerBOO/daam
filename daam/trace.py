@@ -1,41 +1,45 @@
-from pathlib import Path
-from typing import List, Type, Any, Dict, Tuple, Union
 import math
+from pathlib import Path
+from typing import List, Type, Union
 
-from diffusers import StableDiffusionPipeline, UNet2DConditionModel, AutoencoderKL
-from diffusers.models.attention_processor import Attention
-from transformers.image_transforms import to_pil_image
-import numpy as np
 import PIL.Image as Image
 import torch
 import torch.nn.functional as F
+from diffusers import AutoencoderKL, StableDiffusionPipeline, UNet2DConditionModel
+from diffusers.models.attention_processor import Attention
+from transformers.image_transforms import to_pil_image
 
-from .utils import cache_dir, auto_autocast
 from .experiment import GenerationExperiment
-from .heatmap import RawHeatMapCollection, GlobalHeatMap
-from .hook import ObjectHooker, AggregateHooker, UNetCrossAttentionLocator, CompVisUNetCrossAttentionLocator
+from .heatmap import GlobalHeatMap, RawHeatMapCollection
+from .hook import (
+    AggregateHooker,
+    CompVisUNetCrossAttentionLocator,
+    ObjectHooker,
+    UNetCrossAttentionLocator,
+)
+from .utils import auto_autocast, cache_dir
 
+__all__ = ["trace", "DiffusionHeatMapHooker", "GlobalHeatMap"]
 
-__all__ = ['trace', 'DiffusionHeatMapHooker', 'GlobalHeatMap']
 
 class DiffusionHeatMapHooker(AggregateHooker):
     def __init__(
-            self,
-            pipeline: StableDiffusionPipeline = None,
-            width: int = 512,
-            height: int = 512,
-            low_memory: bool = False,
-            load_heads: bool = False,
-            save_heads: bool = False,
-            data_dir: str = None,
-            context_size: int = 77,
-            unet=None,  # UNet/DiffusionModel
-            vae=None,  # VAE Model
-            tokenizer=None,  # CLIPTokenizer
-            image_processor=None,
-            vae_scale_factor=None,  # 
-            sample_size=None,  # sample_size for the UNet
-            layer_idx=None  # Layer to extract from the UNet
+        self,
+        pipeline: StableDiffusionPipeline = None,
+        width: int = 512,
+        height: int = 512,
+        low_memory: bool = False,
+        load_heads: bool = False,
+        save_heads: bool = False,
+        data_dir: str = None,
+        context_size: int = 77,
+        unet=None,  # UNet/DiffusionModel
+        vae=None,  # VAE Model
+        tokenizer=None,  # CLIPTokenizer
+        image_processor=None,
+        vae_scale_factor=None,  #
+        sample_size=None,  # sample_size for the UNet
+        layer_idx=None,  # Layer to extract from the UNet
     ):
         self.img_width = width
         self.img_height = height
@@ -47,7 +51,11 @@ class DiffusionHeatMapHooker(AggregateHooker):
             self.tokenizer = pipeline.tokenizer
             self.vae_scale_factor = pipeline.vae_scale_factor
 
-            self.sample_size = sample_size if sample_size is not None else pipeline.unet.config.sample_size
+            self.sample_size = (
+                sample_size
+                if sample_size is not None
+                else pipeline.unet.config.sample_size
+            )
             self.pipe = pipeline
             self.image_processor = pipeline.feature_extractor
         else:
@@ -66,20 +74,22 @@ class DiffusionHeatMapHooker(AggregateHooker):
             self.sample_size = sample_size
             self.image_processor = image_processor
 
-        h = (self.sample_size * self.vae_scale_factor)
-        self.latent_hw = 4096 if h == 512 else 9216  # 64x64 or 96x96 depending on if it's 2.0-v or 2.0
+        h = self.sample_size * self.vae_scale_factor
+        self.latent_hw = (
+            4096 if h == 512 else 9216
+        )  # 64x64 or 96x96 depending on if it's 2.0-v or 2.0
         locate_middle = load_heads or save_heads
         if isinstance(self.unet, UNet2DConditionModel):
             self.locator = UNetCrossAttentionLocator(
-                restrict={0} if low_memory else layer_idx, 
-                locate_middle_block=locate_middle
+                restrict={0} if low_memory else layer_idx,
+                locate_middle_block=locate_middle,
             )
         else:
             self.locator = CompVisUNetCrossAttentionLocator(
-                restrict={0} if low_memory else layer_idx, 
-                locate_middle_block=locate_middle
+                restrict={0} if low_memory else layer_idx,
+                locate_middle_block=locate_middle,
             )
-        self.last_prompt: str = ''
+        self.last_prompt: str = ""
         self.last_image: Image = None
         self.time_idx = 0
         self._gen_idx = 0
@@ -95,8 +105,9 @@ class DiffusionHeatMapHooker(AggregateHooker):
                 load_heads=load_heads,
                 save_heads=save_heads,
                 data_dir=data_dir,
-                context_size=context_size
-            ) for idx, x in enumerate(self.locator.locate(self.unet))
+                context_size=context_size,
+            )
+            for idx, x in enumerate(self.locator.locate(self.unet))
         ]
 
         if pipeline is not None:
@@ -113,7 +124,7 @@ class DiffusionHeatMapHooker(AggregateHooker):
     def layer_names(self):
         return self.locator.layer_names
 
-    def to_experiment(self, path, seed=None, id='.', subtype='.', **compute_kwargs):
+    def to_experiment(self, path, seed=None, id=".", subtype=".", **compute_kwargs):
         # type: (Union[Path, str], int, str, str, Dict[str, Any]) -> GenerationExperiment
         """Exports the last generation call to a serializable generation experiment."""
 
@@ -128,7 +139,9 @@ class DiffusionHeatMapHooker(AggregateHooker):
             tokenizer=self.tokenizer,
         )
 
-    def compute_global_heat_map(self, prompt=None, head_idx=None, layer_idx=None, normalize=False):
+    def compute_global_heat_map(
+        self, prompt=None, head_idx=None, layer_idx=None, normalize=False
+    ):
         # type: (str, List[float],  int, int, bool) -> GlobalHeatMap
         """
         Compute the global heat map for the given prompt, aggregating across time (inference steps) and space (different
@@ -149,12 +162,14 @@ class DiffusionHeatMapHooker(AggregateHooker):
 
         if prompt is None:
             prompt = self.last_prompt
-        
+
         all_merges = []
 
         with auto_autocast(dtype=torch.float32):
             for (layer, head), heat_map in heat_maps:
-                if (head_idx is None or head_idx == head) and (layer_idx is None or layer_idx == layer):
+                if (head_idx is None or head_idx == head) and (
+                    layer_idx is None or layer_idx == layer
+                ):
                     h = self.img_height // 8
                     w = self.img_width // 8
 
@@ -162,51 +177,73 @@ class DiffusionHeatMapHooker(AggregateHooker):
                     heat_map = heat_map.unsqueeze(1).permute(0, 1, 3, 2)
 
                     # The clamping fixes undershoot.
-                    heat_map = F.interpolate(heat_map, size=(w, h), mode='bicubic').clamp_(min=0)
+                    heat_map = F.interpolate(
+                        heat_map, size=(w, h), mode="bicubic"
+                    ).clamp_(min=0)
                     all_merges.append(heat_map)
 
             try:
                 maps = torch.stack(all_merges, dim=0)
             except RuntimeError:
                 if head_idx is not None or layer_idx is not None:
-                    raise RuntimeError('No heat maps found for the given parameters.')
+                    raise RuntimeError("No heat maps found for the given parameters.")
                 else:
-                    raise RuntimeError('No heat maps found. Did you forget to call `with trace(...)` during generation?')
+                    raise RuntimeError(
+                        "No heat maps found. Did you forget to call `with trace(...)` during generation?"
+                    )
 
             maps = maps.mean(0)[:, 0]
-            maps = maps[:len(self.tokenizer.tokenize(prompt)) + 2]  # 1 for SOS and 1 for padding
+            maps = maps[
+                : len(self.tokenizer.tokenize(prompt)) + 2
+            ]  # 1 for SOS and 1 for padding
 
             if normalize:
-                maps = maps / (maps[1:-1].sum(0, keepdim=True) + 1e-6)  # drop out [SOS] and [PAD] for proper probabilities
+                maps = maps / (
+                    maps[1:-1].sum(0, keepdim=True) + 1e-6
+                )  # drop out [SOS] and [PAD] for proper probabilities
 
         return GlobalHeatMap(self.tokenizer, prompt, maps)
 
+
 class VAEHooker(ObjectHooker[AutoencoderKL]):
-    def __init__(self, vae: AutoencoderKL, parent_trace: 'trace', image_processor):
+    def __init__(self, vae: AutoencoderKL, parent_trace: "trace", image_processor):
         super().__init__(vae)
         self.parent_trace = parent_trace
 
-    def _hooked_decode(hk_self, self: AutoencoderKL, z: torch.FloatTensor, *args, **kwargs):
-        output = hk_self.monkey_super('decode', z, *args, **kwargs)
+    def _hooked_decode(
+        hk_self, self: AutoencoderKL, z: torch.FloatTensor, *args, **kwargs
+    ):
+        output = hk_self.monkey_super("decode", z, *args, **kwargs)
 
-        images = [to_pil_image(img.squeeze().float().cpu().numpy(), do_rescale=True) for img in output]
+        images = [
+            to_pil_image(img.squeeze().float().cpu().numpy(), do_rescale=True)
+            for img in output
+        ]
 
-        hk_self.parent_trace.last_image = images[len(images)-1] 
+        hk_self.parent_trace.last_image = images[len(images) - 1]
         return output
 
     def _hook_impl(self):
-        self.monkey_patch('decode', self._hooked_decode)
+        self.monkey_patch("decode", self._hooked_decode)
 
 
 class PipelineHooker(ObjectHooker[StableDiffusionPipeline]):
-    def __init__(self, pipeline: StableDiffusionPipeline, parent_trace: 'trace'):
+    def __init__(self, pipeline: StableDiffusionPipeline, parent_trace: "trace"):
         super().__init__(pipeline)
         self.heat_maps = parent_trace.all_heat_maps
         self.parent_trace = parent_trace
 
-    def _hooked_encode_prompt(hk_self, _: StableDiffusionPipeline, prompt: Union[str, List[str]], *args, **kwargs):
+    def _hooked_encode_prompt(
+        hk_self,
+        _: StableDiffusionPipeline,
+        prompt: Union[str, List[str]],
+        *args,
+        **kwargs,
+    ):
         if not isinstance(prompt, str) and len(prompt) > 1:
-            raise ValueError('Only single prompt generation is supported for heat map computation.')
+            raise ValueError(
+                "Only single prompt generation is supported for heat map computation."
+            )
         elif not isinstance(prompt, str):
             last_prompt = prompt[0]
         else:
@@ -214,27 +251,27 @@ class PipelineHooker(ObjectHooker[StableDiffusionPipeline]):
 
         hk_self.heat_maps.clear()
         hk_self.parent_trace.last_prompt = last_prompt
-        ret = hk_self.monkey_super('_encode_prompt', prompt, *args, **kwargs)
+        ret = hk_self.monkey_super("_encode_prompt", prompt, *args, **kwargs)
 
         return ret
 
     def _hook_impl(self):
-        self.monkey_patch('_encode_prompt', self._hooked_encode_prompt)
+        self.monkey_patch("_encode_prompt", self._hooked_encode_prompt)
 
 
 class UNetCrossAttentionHooker(ObjectHooker[Attention]):
     def __init__(
-            self,
-            module: Attention,
-            parent_trace: 'trace',
-            context_size: int = 77,
-            img_width: int = 512,
-            img_height: int = 512,
-            layer_idx: int = 0,
-            latent_hw: int = 9216,
-            load_heads: bool = False,
-            save_heads: bool = False,
-            data_dir: Union[str, Path] = None
+        self,
+        module: Attention,
+        parent_trace: "trace",
+        context_size: int = 77,
+        img_width: int = 512,
+        img_height: int = 512,
+        layer_idx: int = 0,
+        latent_hw: int = 9216,
+        load_heads: bool = False,
+        save_heads: bool = False,
+        data_dir: Union[str, Path] = None,
     ):
         super().__init__(module)
         self.heat_maps = parent_trace.all_heat_maps
@@ -254,7 +291,7 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         if data_dir is not None:
             data_dir = Path(data_dir)
         else:
-            data_dir = cache_dir() / 'heads'
+            data_dir = cache_dir() / "heads"
 
         self.data_dir = data_dir
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -273,37 +310,41 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         Returns:
             `List[Tuple[int, torch.Tensor]]`: the list of heat maps across heads.
         """
-        h = int(math.ceil(math.sqrt(x.size(1)*self.img_width / self.img_height)))
-        w = int(math.ceil(math.sqrt(x.size(1)*self.img_height / self.img_width)))
+        h = int(math.ceil(math.sqrt(x.size(1) * self.img_width / self.img_height)))
+        w = int(math.ceil(math.sqrt(x.size(1) * self.img_height / self.img_width)))
         maps = []
         x = x.permute(2, 0, 1)
 
         with auto_autocast(dtype=torch.float32):
             for map_ in x:
-                #print(map_.shape())
+                # print(map_.shape())
                 map_ = map_.view(map_.size(0), w, h)
-                map_ = map_[map_.size(0) // 2:]  # Filter out unconditional
+                map_ = map_[map_.size(0) // 2 :]  # Filter out unconditional
                 maps.append(map_)
 
         maps = torch.stack(maps, 0)  # shape: (tokens, heads, height, width)
-        return maps.permute(1, 0, 2, 3).contiguous()  # shape: (heads, tokens, width, height)
+        return maps.permute(
+            1, 0, 2, 3
+        ).contiguous()  # shape: (heads, tokens, width, height)
 
     def _save_attn(self, attn_slice: torch.Tensor):
-        torch.save(attn_slice, self.data_dir / f'{self.trace._gen_idx}.pt')
+        torch.save(attn_slice, self.data_dir / f"{self.trace._gen_idx}.pt")
 
     def _load_attn(self) -> torch.Tensor:
-        return torch.load(self.data_dir / f'{self.trace._gen_idx}.pt')
+        return torch.load(self.data_dir / f"{self.trace._gen_idx}.pt")
 
     def __call__(
-            self,
-            attn: Attention,
-            hidden_states,
-            encoder_hidden_states=None,
-            attention_mask=None,
+        self,
+        attn: Attention,
+        hidden_states,
+        encoder_hidden_states=None,
+        attention_mask=None,
     ):
         """Capture attentions and aggregate them."""
         batch_size, sequence_length, _ = hidden_states.shape
-        attention_mask = prepare_attention_mask(attn, attention_mask, sequence_length, batch_size)
+        attention_mask = prepare_attention_mask(
+            attn, attention_mask, sequence_length, batch_size
+        )
         query = attn.to_q(hidden_states)
 
         if encoder_hidden_states is None:
@@ -345,13 +386,14 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
 
         return hidden_states
 
-
     def _hook_impl(self):
-        if hasattr(self.module, "processor") and callable(getattr(self.module, "processor")):
+        if hasattr(self.module, "processor") and callable(
+            getattr(self.module, "processor")
+        ):
             self.original_processor = self.module.processor
             self.module.set_processor(self)
         else:
-            self.monkey_patch('forward', comp_vis_attention(self, self.module))
+            self.monkey_patch("forward", comp_vis_attention(self, self.module))
 
     def _unhook_impl(self):
         if self.original_processor is not None:
@@ -363,7 +405,8 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
     def num_heat_maps(self):
         return len(next(iter(self.heat_maps.values())))
 
-def comp_vis_attention(_call, attn): 
+
+def comp_vis_attention(_call, attn):
     def attention_call(*args, **kwargs):
         attention_mask = kwargs.mask if "mask" in kwargs else None
 
@@ -372,21 +415,26 @@ def comp_vis_attention(_call, attn):
             return _call(
                 attn=args[0],
                 hidden_states=args[1],
-                encoder_hidden_states=kwargs['context'],
+                encoder_hidden_states=kwargs["context"],
                 attention_mask=attention_mask,
             )
         else:
             return _call(
                 attn=attn,
                 hidden_states=args[0],
-                encoder_hidden_states=kwargs['context'],
+                encoder_hidden_states=kwargs["context"],
                 attention_mask=attention_mask,
             )
 
     return attention_call
 
+
 def prepare_attention_mask(
-    attn, attention_mask: torch.Tensor, target_length: int, batch_size: int, out_dim: int = 3
+    attn,
+    attention_mask: torch.Tensor,
+    target_length: int,
+    batch_size: int,
+    out_dim: int = 3,
 ) -> torch.Tensor:
     r"""
     Prepare the attention mask for the attention computation.
@@ -413,8 +461,14 @@ def prepare_attention_mask(
         if attention_mask.device.type == "mps":
             # HACK: MPS: Does not support padding by greater than dimension of input tensor.
             # Instead, we can manually construct the padding tensor.
-            padding_shape = (attention_mask.shape[0], attention_mask.shape[1], target_length)
-            padding = torch.zeros(padding_shape, dtype=attention_mask.dtype, device=attention_mask.device)
+            padding_shape = (
+                attention_mask.shape[0],
+                attention_mask.shape[1],
+                target_length,
+            )
+            padding = torch.zeros(
+                padding_shape, dtype=attention_mask.dtype, device=attention_mask.device
+            )
             attention_mask = torch.cat([attention_mask, padding], dim=2)
         else:
             # TODO: for pipelines such as stable-diffusion, padding cross-attn mask:
@@ -432,6 +486,7 @@ def prepare_attention_mask(
 
     return attention_mask
 
+
 def batch_to_head_dim(attn, tensor: torch.Tensor) -> torch.Tensor:
     r"""
     Reshape the tensor from `[batch_size, seq_len, dim]` to `[batch_size // heads, seq_len, dim * heads]`. `heads`
@@ -446,8 +501,11 @@ def batch_to_head_dim(attn, tensor: torch.Tensor) -> torch.Tensor:
     head_size = attn.heads
     batch_size, seq_len, dim = tensor.shape
     tensor = tensor.reshape(batch_size // head_size, head_size, seq_len, dim)
-    tensor = tensor.permute(0, 2, 1, 3).reshape(batch_size // head_size, seq_len, dim * head_size)
+    tensor = tensor.permute(0, 2, 1, 3).reshape(
+        batch_size // head_size, seq_len, dim * head_size
+    )
     return tensor
+
 
 def head_to_batch_dim(attn, tensor: torch.Tensor, out_dim: int = 3) -> torch.Tensor:
     r"""
@@ -472,6 +530,7 @@ def head_to_batch_dim(attn, tensor: torch.Tensor, out_dim: int = 3) -> torch.Ten
 
     return tensor
 
+
 def get_attention_scores(
     attn, query: torch.Tensor, key: torch.Tensor, attention_mask: torch.Tensor = None
 ) -> torch.Tensor:
@@ -493,7 +552,11 @@ def get_attention_scores(
 
     if attention_mask is None:
         baddbmm_input = torch.empty(
-            query.shape[0], query.shape[1], key.shape[1], dtype=query.dtype, device=query.device
+            query.shape[0],
+            query.shape[1],
+            key.shape[1],
+            dtype=query.dtype,
+            device=query.device,
         )
         beta = 0
     else:
@@ -518,7 +581,6 @@ def get_attention_scores(
     attention_probs = attention_probs.to(dtype)
 
     return attention_probs
-
 
 
 trace: Type[DiffusionHeatMapHooker] = DiffusionHeatMapHooker

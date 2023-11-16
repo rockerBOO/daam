@@ -8,12 +8,14 @@ import torch
 import torch.nn.functional as F
 
 
-__all__ = ['compute_iou', 'MeanEvaluator', 'load_mask', 'compute_ioa']
+__all__ = ["compute_iou", "MeanEvaluator", "load_mask", "compute_ioa"]
 
 
 def compute_iou(a: torch.Tensor, b: torch.Tensor) -> float:
     if a.shape[0] != b.shape[0]:
-        a = F.interpolate(a.unsqueeze(0).unsqueeze(0).float(), size=b.shape, mode='bicubic').squeeze()
+        a = F.interpolate(
+            a.unsqueeze(0).unsqueeze(0).float(), size=b.shape, mode="bicubic"
+        ).squeeze()
         a[a < 1] = 0
         a[a >= 1] = 1
 
@@ -25,7 +27,9 @@ def compute_iou(a: torch.Tensor, b: torch.Tensor) -> float:
 
 def compute_ioa(a: torch.Tensor, b: torch.Tensor) -> float:
     if a.shape[0] != b.shape[0]:
-        a = F.interpolate(a.unsqueeze(0).unsqueeze(0).float(), size=b.shape, mode='bicubic').squeeze()
+        a = F.interpolate(
+            a.unsqueeze(0).unsqueeze(0).float(), size=b.shape, mode="bicubic"
+        ).squeeze()
         a[a < 1] = 0
         a[a >= 1] = 1
 
@@ -44,12 +48,18 @@ def load_mask(path: str) -> torch.Tensor:
 
 
 class UnsupervisedEvaluator:
-    def __init__(self, name: str = 'UnsupervisedEvaluator'):
+    def __init__(self, name: str = "UnsupervisedEvaluator"):
         self.name = name
         self.ious = defaultdict(list)
         self.num_samples = 0
 
-    def log_iou(self, preds: Union[torch.Tensor, List[torch.Tensor]], truth: torch.Tensor, gt_idx: int = 0, pred_idx: int = 0):
+    def log_iou(
+        self,
+        preds: Union[torch.Tensor, List[torch.Tensor]],
+        truth: torch.Tensor,
+        gt_idx: int = 0,
+        pred_idx: int = 0,
+    ):
         if not isinstance(preds, list):
             preds = [preds]
 
@@ -77,16 +87,18 @@ class UnsupervisedEvaluator:
         return self.num_samples
 
     def __str__(self):
-        return f'{self.name}<{self.mean_iou:.4f} (mIoU) {len(self)} samples>'
+        return f"{self.name}<{self.mean_iou:.4f} (mIoU) {len(self)} samples>"
 
 
 class MeanEvaluator:
-    def __init__(self, name: str = 'MeanEvaluator'):
+    def __init__(self, name: str = "MeanEvaluator"):
         self.ious: List[float] = []
         self.intensities: List[float] = []
         self.name = name
 
-    def log_iou(self, preds: Union[torch.Tensor, List[torch.Tensor]], truth: torch.Tensor):
+    def log_iou(
+        self, preds: Union[torch.Tensor, List[torch.Tensor]], truth: torch.Tensor
+    ):
         if not isinstance(preds, list):
             preds = [preds]
 
@@ -113,10 +125,10 @@ class MeanEvaluator:
         return max(len(self.ious), len(self.intensities))
 
     def __str__(self):
-        return f'{self.name}<{self.mean_iou:.4f} (±{self.ci95_miou:.3f} mIoU) {self.mean_intensity:.4f} (mInt) {len(self)} samples>'
+        return f"{self.name}<{self.mean_iou:.4f} (±{self.ci95_miou:.3f} mIoU) {self.mean_intensity:.4f} (mInt) {len(self)} samples>"
 
 
-if __name__ == '__main__':
-    mask = load_mask('truth/output/452/sink.gt.png')
+if __name__ == "__main__":
+    mask = load_mask("truth/output/452/sink.gt.png")
 
     print(MeanEvaluator().log_iou(mask, mask))
