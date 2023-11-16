@@ -8,12 +8,12 @@ import torch.nn.functional as F
 from diffusers import AutoencoderKL, StableDiffusionPipeline, UNet2DConditionModel
 from diffusers.models.attention_processor import Attention
 from transformers.image_transforms import to_pil_image
+from matplotlib import pyplot as plt
 
 from .experiment import GenerationExperiment
 from .heatmap import GlobalHeatMap, RawHeatMapCollection
 from .hook import (
     AggregateHooker,
-    CompVisUNetCrossAttentionLocator,
     ObjectHooker,
     UNetCrossAttentionLocator,
 )
@@ -79,16 +79,10 @@ class DiffusionHeatMapHooker(AggregateHooker):
             4096 if h == 512 else 9216
         )  # 64x64 or 96x96 depending on if it's 2.0-v or 2.0
         locate_middle = load_heads or save_heads
-        if isinstance(self.unet, UNet2DConditionModel):
-            self.locator = UNetCrossAttentionLocator(
-                restrict={0} if low_memory else layer_idx,
-                locate_middle_block=locate_middle,
-            )
-        else:
-            self.locator = CompVisUNetCrossAttentionLocator(
-                restrict={0} if low_memory else layer_idx,
-                locate_middle_block=locate_middle,
-            )
+        self.locator = UNetCrossAttentionLocator(
+            restrict={0} if low_memory else layer_idx,
+            locate_middle_block=locate_middle,
+        )
         self.last_prompt: str = ""
         self.last_image: Image = None
         self.time_idx = 0
@@ -172,14 +166,25 @@ class DiffusionHeatMapHooker(AggregateHooker):
                 ):
                     h = self.img_height // 8
                     w = self.img_width // 8
-
                     # shape 77, 1, 48, 80
+                    print(heat_map.size())
                     heat_map = heat_map.unsqueeze(1).permute(0, 1, 3, 2)
+                    print(heat_map.size())
 
                     # The clamping fixes undershoot.
                     heat_map = F.interpolate(
                         heat_map, size=(w, h), mode="bicubic"
                     ).clamp_(min=0)
+
+                    # print(heat_map.size())
+                    # print(heat_map.squeeze().size())
+                    #
+                    # for i, map in enumerate(heat_map):
+                    #     plt.imshow(map.squeeze().cpu().numpy(), cmap="jet")
+                    #     plt.title(f"layer {layer:02d} head {head:02d} blk {i:02d}")
+                    #     plt.savefig(f"./tmp/heamp-{layer:02d}-{head:02d}-{i:02d}.png")
+                    #     plt.clf()
+
                     all_merges.append(heat_map)
 
             try:
@@ -409,20 +414,21 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
 def comp_vis_attention(_call, attn):
     def attention_call(*args, **kwargs):
         attention_mask = kwargs.mask if "mask" in kwargs else None
+        encoder_hidden_states = kwargs["context"] if "context" in kwargs else None
 
         # Arguments come in all weird at times so we are breaking up a pattern here
         if len(args) == 2:
             return _call(
                 attn=args[0],
                 hidden_states=args[1],
-                encoder_hidden_states=kwargs["context"],
+                encoder_hidden_states=encoder_hidden_states,
                 attention_mask=attention_mask,
             )
         else:
             return _call(
                 attn=attn,
                 hidden_states=args[0],
-                encoder_hidden_states=kwargs["context"],
+                encoder_hidden_states=encoder_hidden_states,
                 attention_mask=attention_mask,
             )
 

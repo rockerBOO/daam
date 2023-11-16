@@ -103,7 +103,13 @@ class UNetCrossAttentionLocator(ModuleLocator[Attention]):
         Returns:
             `List[Attention]`: The list of cross-attention modules.
         """
-        self.layer_names.clear()
+        if hasattr(model, "up_blocks"):
+            return self.x(model)
+
+        if hasattr(model, "input_blocks"):
+            return self.y(model)
+
+    def x(self, model):
         blocks_list = []
         up_names = ["up"] * len(model.up_blocks)
         down_names = ["down"] * len(model.down_blocks)
@@ -135,15 +141,7 @@ class UNetCrossAttentionLocator(ModuleLocator[Attention]):
 
         return blocks_list
 
-
-class CompVisUNetCrossAttentionLocator(ModuleLocator[Attention]):
-    def __init__(self, restrict: bool = None, locate_middle_block: bool = False):
-        self.restrict = restrict
-        self.layer_names = []
-        self.locate_middle_block = locate_middle_block
-
-    #                UNetModel
-    def locate(self, model) -> List[Attention]:
+    def y(self, model):
         blocks_list = []
         # input_names = ['input'] * len(model.input_blocks)
         # output_names = ['output'] * len(model.output_blocks)
@@ -159,12 +157,9 @@ class CompVisUNetCrossAttentionLocator(ModuleLocator[Attention]):
 
                     for transformer_block in module.transformer_blocks:
                         blocks.append(transformer_block.attn2)
-                        
+
                     print("restrict", self.restrict)
-                    print("blocks", len(blocks), [
-                        idx
-                        for idx, b in enumerate(blocks)
-                    ])
+                    print("blocks", len(blocks), [idx for idx, b in enumerate(blocks)])
                     blocks = [
                         b
                         for idx, b in enumerate(blocks)
@@ -172,8 +167,8 @@ class CompVisUNetCrossAttentionLocator(ModuleLocator[Attention]):
                     ]
                     blocks_list.extend(blocks)
 
-                        # names = [f'{name}-attn-{i}' for i in range(len(blocks)) if self.restrict is None or i in self.restrict]
-                        # self.layer_names.extend(names)
+                    # names = [f'{name}-attn-{i}' for i in range(len(blocks)) if self.restrict is None or i in self.restrict]
+                    # self.layer_names.extend(names)
 
         print(f"DAAM blocks: {len(blocks_list)}")
         print(f"DAAM layer_names: {len(self.layer_names)}")

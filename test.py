@@ -149,7 +149,6 @@ def main(args):
 
             prompt_id = str(prompt_id)
 
-
             with trace(
                 pipe,
                 # 512,
@@ -160,6 +159,7 @@ def main(args):
                 save_heads=args.save_heads,
                 load_heads=args.load_heads,
             ) as tc:
+
                 out = pipe(
                     prompt,
                     width=args.width,
@@ -167,7 +167,6 @@ def main(args):
                     num_inference_steps=args.steps,
                     guidance_scale=7.0,
                     generator=gen,
-                    callback=tc.time_callback,
                 )
 
                 img_filename = f"{prompt_id}-{prompt}.png"

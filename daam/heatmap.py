@@ -51,6 +51,7 @@ def plot_overlay_heat_map(
             )
 
         im = torch.from_numpy(im).float() / 255
+        print(f"im {im.size()} heat_map {heat_map.size()} {heat_map.unsqueeze(-1).size()}")
         im = torch.cat((im, (1 - heat_map.unsqueeze(-1))), dim=-1)
 
         plt_.imshow(im)
