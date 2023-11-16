@@ -182,7 +182,7 @@ class VAEHooker(ObjectHooker[AutoencoderKL]):
     def _hooked_decode(hk_self, self: AutoencoderKL, z: torch.FloatTensor, *args, **kwargs):
         output = hk_self.monkey_super('decode', z, *args, **kwargs)
 
-        images = [to_pil_image(img.squeeze().float().cpu().numpy()) for img in output]
+        images = [to_pil_image(img.squeeze().float().cpu().numpy(), do_rescale=True) for img in output]
 
         hk_self.parent_trace.last_image = images[len(images)-1] 
         return output
