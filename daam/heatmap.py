@@ -10,6 +10,7 @@ import PIL.Image
 import spacy.tokens
 import torch
 import torch.nn.functional as F
+from torchvision.transforms.functional import pil_to_tensor
 
 from .evaluate import compute_ioa
 from .utils import compute_token_merge_indices, cached_nlp, auto_autocast, expand_image
@@ -17,6 +18,7 @@ from .utils import compute_token_merge_indices, cached_nlp, auto_autocast, expan
 __all__ = ['GlobalHeatMap', 'RawHeatMapCollection', 'WordHeatMap', 'ParsedHeatMap', 'SyntacticHeatMapPair']
 
 
+@torch.no_grad()
 def plot_overlay_heat_map(im, heat_map, word=None, out_file=None, crop=None, color_normalize=True, ax=None):
     # type: (PIL.Image.Image | np.ndarray, torch.Tensor, str, Path, int, bool, plt.Axes) -> None
     if ax is None:
@@ -30,7 +32,8 @@ def plot_overlay_heat_map(im, heat_map, word=None, out_file=None, crop=None, col
         im = np.array(im)
 
         heat_map = heat_map.permute(1, 0)  # swap width/height
-        # heat_map shape width, height
+        # shape height, width
+
         if crop is not None:
             heat_map = heat_map.squeeze()[crop:-crop, crop:-crop]
             im = im[crop:-crop, crop:-crop]
@@ -43,6 +46,7 @@ def plot_overlay_heat_map(im, heat_map, word=None, out_file=None, crop=None, col
 
         im = torch.from_numpy(im).float() / 255
         im = torch.cat((im, (1 - heat_map.unsqueeze(-1))), dim=-1)
+
         plt_.imshow(im)
 
         if word is not None:

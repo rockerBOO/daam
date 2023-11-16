@@ -71,8 +71,6 @@ def cache_dir() -> Path:
 
 
 def compute_token_merge_indices(tokenizer, prompt: str, word: str, word_idx: int = None, offset_idx: int = 0):
-    print(f"prompt {prompt}")
-    print(f"word {word}")
     merge_idxs = []
     tokens = tokenizer.tokenize(prompt.lower())
     if word_idx is None:
@@ -106,24 +104,24 @@ def cached_nlp(prompt: str, type='en_core_web_md'):
 
     return nlp(prompt)
 
+@torch.no_grad()
 def expand_image(heatmap, image, absolute=False, threshold=None, plot=False, **plot_kwargs):
     # type: (PIL.Image.Image, bool, float, bool, Dict[str, Any]) -> torch.Tensor
 
-    im = heatmap.unsqueeze(0).unsqueeze(0).clone()
+    with auto_autocast(dtype=torch.float32):
+        # remove batch and channel dimensions 
+        # TODO maybe handle batch more appropriately
+        im = heatmap.unsqueeze(0).unsqueeze(0)
+        im = F.interpolate(im.float().detach(), size=(image.size[0], image.size[1]), mode='bicubic')
 
-    # print(image.size)
-    # print(im.size())
-    # print(im.permute(0, 1, 3, 2).size())
-    im = F.interpolate(im.float().detach(), size=(image.size[0], image.size[1]), mode='bicubic')
+        if not absolute:
+            im = (im - im.min()) / (im.max() - im.min() + 1e-8)
 
-    if not absolute:
-        im = (im - im.min()) / (im.max() - im.min() + 1e-8)
+        if threshold:
+            im = (im > threshold).float()
 
-    if threshold:
-        im = (im > threshold).float()
+        im = im.cpu().detach().squeeze()
 
-    im = im.cpu().detach().squeeze()
-
-    return im
+        return im
 
 
