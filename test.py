@@ -20,6 +20,7 @@ from diffusers import (
     HeunDiscreteScheduler,
     KDPM2DiscreteScheduler,
     KDPM2AncestralDiscreteScheduler,
+    AutoencoderKL
 )
 from tqdm import tqdm
 import numpy as np
@@ -121,6 +122,8 @@ def main(args):
         beta_schedule=SCHEDLER_SCHEDULE,
         **sched_init_args,
     )
+    
+    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse")
 
     pipe = StableDiffusionPipeline.from_pretrained(
         model_id,
@@ -129,6 +132,7 @@ def main(args):
         variant="fp16",
         safety_checker=None,
         scheduler=scheduler,
+        vae=vae,
     )
     pipe = auto_device(pipe)
 
@@ -145,6 +149,7 @@ def main(args):
 
             prompt_id = str(prompt_id)
 
+
             with trace(
                 pipe,
                 # 512,
@@ -160,6 +165,7 @@ def main(args):
                     width=args.width,
                     height=args.height,
                     num_inference_steps=args.steps,
+                    guidance_scale=7.0,
                     generator=gen,
                     callback=tc.time_callback,
                 )
@@ -170,6 +176,7 @@ def main(args):
 
                 global_heat_map = tc.compute_global_heat_map(prompt=prompt)
                 for word in args.words.split(","):
+                    word = word.strip()
                     heat_map = global_heat_map.compute_word_heat_map(word)
                     daam_img_filename = f"{word}-daam.png"
                     print(f"Saving daam heatmap to {daam_img_filename}")

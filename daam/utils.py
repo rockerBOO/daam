@@ -129,17 +129,33 @@ def expand_image(
     # type: (PIL.Image.Image, bool, float, bool, Dict[str, Any]) -> torch.Tensor
 
     with auto_autocast(dtype=torch.float32):
-        # remove batch and channel dimensions
-        # TODO maybe handle batch more appropriately
-        im = heatmap.unsqueeze(0).unsqueeze(0)
+        # # remove batch and channel dimensions
+        # # TODO maybe handle batch more appropriately
+        # h = self.img_height // 8
+        # w = self.img_width // 8
+
+        w = image.size[0]
+        h = image.size[1]
+
+        # shape 77, 1, 48, 80
+        print(heatmap.shape)
+        heatmap = heatmap.unsqueeze(1)
+        print(heatmap.shape)
+
+        # The clamping fixes undershoot.
         im = F.interpolate(
-            im.float().detach(), size=(image.size[0], image.size[1]), mode="bicubic"
-        )
+            heatmap, size=(w, h), mode="bicubic"
+        ).clamp_(min=0)
+
+        # im = heatmap.unsqueeze(0).unsqueeze(0)
+        # im = F.interpolate(
+        #     im.float().detach(), size=(image.size[0], image.size[1]), mode="bicubic"
+        # )
 
         if not absolute:
             im = (im - im.min()) / (im.max() - im.min() + 1e-8)
 
-        if threshold:
+        if threshold is not None:
             im = (im > threshold).float()
 
         im = im.cpu().detach().squeeze()

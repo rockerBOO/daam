@@ -159,13 +159,18 @@ class CompVisUNetCrossAttentionLocator(ModuleLocator[Attention]):
 
                     for transformer_block in module.transformer_blocks:
                         blocks.append(transformer_block.attn2)
-
-                        blocks = [
-                            b
-                            for idx, b in enumerate(blocks)
-                            if self.restrict is None or idx in self.restrict
-                        ]
-                        blocks_list.extend(blocks)
+                        
+                    print("restrict", self.restrict)
+                    print("blocks", len(blocks), [
+                        idx
+                        for idx, b in enumerate(blocks)
+                    ])
+                    blocks = [
+                        b
+                        for idx, b in enumerate(blocks)
+                        if self.restrict is None or idx in self.restrict
+                    ]
+                    blocks_list.extend(blocks)
 
                         # names = [f'{name}-attn-{i}' for i in range(len(blocks)) if self.restrict is None or i in self.restrict]
                         # self.layer_names.extend(names)
