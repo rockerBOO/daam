@@ -141,7 +141,6 @@ class CompVisUNetCrossAttentionLocator(ModuleLocator[Attention]):
                 model.output_blocks,
                [model.mid_block] if self.locate_middle_block else [],
         ):
-            print(type(unet_block).__name__)
             for module in unet_block.modules():
                 if 'SpatialTransformer' in module.__class__.__name__:
                     blocks = []
@@ -155,18 +154,7 @@ class CompVisUNetCrossAttentionLocator(ModuleLocator[Attention]):
                         # names = [f'{name}-attn-{i}' for i in range(len(blocks)) if self.restrict is None or i in self.restrict]
                         # self.layer_names.extend(names)
 
+        print(f"DAAM blocks: {len(blocks_list)}")
+        print(f"DAAM layer_names: {len(self.layer_names)}")
 
-        # for unet_block in itertools.chain(model.input_blocks, model.output_blocks, [model.middle_block]):
-        #     # if 'CrossAttn' in unet_block.__class__.__name__:
-        #     if not layer_idx or i == layer_idx:
-        #         for module in unet_block.modules():
-        #             # if type(module) is SpatialTransformer:
-        #             spatial_transformer = module
-        #             for basic_transformer_block in spatial_transformer.transformer_blocks:
-        #                 blocks.append(basic_transformer_block.attn2)
-        #     i += 1
-        # 
-        # if layer_idx:
-        #     blocks = [blocks[0]]
-
-        return blocks
+        return blocks_list

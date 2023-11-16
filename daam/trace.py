@@ -29,12 +29,13 @@ class DiffusionHeatMapHooker(AggregateHooker):
             save_heads: bool = False,
             data_dir: str = None,
             context_size: int = 77,
-            unet = None,
-            vae = None,
-            tokenizer = None,
-            image_processor = None,
-            vae_scale_factor = None,
-            sample_size = None,
+            unet=None,  # UNet/DiffusionModel
+            vae=None,  # VAE Model
+            tokenizer=None,  # CLIPTokenizer
+            image_processor=None,
+            vae_scale_factor=None,  # 
+            sample_size=None,  # sample_size for the UNet
+            layer_idx=None  # Layer to extract from the UNet
     ):
         self.img_width = width
         self.img_height = height
@@ -69,9 +70,15 @@ class DiffusionHeatMapHooker(AggregateHooker):
         self.latent_hw = 4096 if h == 512 else 9216  # 64x64 or 96x96 depending on if it's 2.0-v or 2.0
         locate_middle = load_heads or save_heads
         if isinstance(self.unet, UNet2DConditionModel):
-            self.locator = UNetCrossAttentionLocator(restrict={0} if low_memory else None, locate_middle_block=locate_middle)
+            self.locator = UNetCrossAttentionLocator(
+                restrict={0} if low_memory else layer_idx, 
+                locate_middle_block=locate_middle
+            )
         else:
-            self.locator = CompVisUNetCrossAttentionLocator(restrict={0} if low_memory else None, locate_middle_block=locate_middle)
+            self.locator = CompVisUNetCrossAttentionLocator(
+                restrict={0} if low_memory else layer_idx, 
+                locate_middle_block=locate_middle
+            )
         self.last_prompt: str = ''
         self.last_image: Image = None
         self.time_idx = 0
