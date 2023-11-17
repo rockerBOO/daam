@@ -39,7 +39,6 @@ class DiffusionHeatMapHooker(AggregateHooker):
         image_processor=None,
         vae_scale_factor=None,  #
         sample_size=None,  # sample_size for the UNet
-        layer_idx=None,  # Layer to extract from the UNet
     ):
         self.img_width = width
         self.img_height = height
@@ -80,7 +79,7 @@ class DiffusionHeatMapHooker(AggregateHooker):
         )  # 64x64 or 96x96 depending on if it's 2.0-v or 2.0
         locate_middle = load_heads or save_heads
         self.locator = UNetCrossAttentionLocator(
-            restrict={0} if low_memory else layer_idx,
+            restrict={0} if low_memory else None,
             locate_middle_block=locate_middle,
         )
         self.last_prompt: str = ""
@@ -164,21 +163,23 @@ class DiffusionHeatMapHooker(AggregateHooker):
                 if (head_idx is None or head_idx == head) and (
                     layer_idx is None or layer_idx == layer
                 ):
-                    h = self.img_height // 8
-                    w = self.img_width // 8
+                    h = self.img_height // 2
+                    w = self.img_width // 2
+                    # h = self.img_height
+                    # w = self.img_width
                     # shape 77, 1, 48, 80
-                    print(heat_map.size())
-                    heat_map = heat_map.unsqueeze(1).permute(0, 1, 3, 2)
-                    print(heat_map.size())
+                    print("permuting the image", heat_map.size())
+                    heat_map = heat_map.unsqueeze(1).permute(0, 1, 3, 2).clone()
+                    # heat_map = heat_map.unsqueeze(1).permute(0, 1, 2, 3).clone()
+                    print("permuting post", heat_map.size())
 
                     # The clamping fixes undershoot.
                     heat_map = F.interpolate(
                         heat_map, size=(w, h), mode="bicubic"
                     ).clamp_(min=0)
 
-                    # print(heat_map.size())
-                    # print(heat_map.squeeze().size())
-                    #
+                    print("post interpolation", heat_map.size())
+
                     # for i, map in enumerate(heat_map):
                     #     plt.imshow(map.squeeze().cpu().numpy(), cmap="jet")
                     #     plt.title(f"layer {layer:02d} head {head:02d} blk {i:02d}")
@@ -220,8 +221,11 @@ class VAEHooker(ObjectHooker[AutoencoderKL]):
     ):
         output = hk_self.monkey_super("decode", z, *args, **kwargs)
 
+        print([img.size() for img in output])
         images = [
-            to_pil_image(img.squeeze().float().cpu().numpy(), do_rescale=True)
+            to_pil_image(img.permute(1, 2, 0).float().cpu(), do_rescale=True)
+            if len(img.size()) == 2
+            else to_pil_image(img.squeeze().float().cpu(), do_rescale=True)
             for img in output
         ]
 
@@ -315,17 +319,28 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         Returns:
             `List[Tuple[int, torch.Tensor]]`: the list of heat maps across heads.
         """
+        print("x", x.size())
         h = int(math.ceil(math.sqrt(x.size(1) * self.img_width / self.img_height)))
         w = int(math.ceil(math.sqrt(x.size(1) * self.img_height / self.img_width)))
         maps = []
+        print("x before", x.size())
         x = x.permute(2, 0, 1)
+        print("x after", x.size())
 
         with auto_autocast(dtype=torch.float32):
-            for map_ in x:
-                # print(map_.shape())
+            for i, map_ in enumerate(x):
+                print(map_.size())
                 map_ = map_.view(map_.size(0), w, h)
                 map_ = map_[map_.size(0) // 2 :]  # Filter out unconditional
+                print(f"map {map_.size()}")
+
+                # print(map_.unsqueeze(1).size())
+                # to_pil_image(map_.unsqueeze(1).cpu(), do_rescale=True).save("heatmap_{i}.png")
+
                 maps.append(map_)
+
+            # import sys
+            # sys.exit(1)
 
         maps = torch.stack(maps, 0)  # shape: (tokens, heads, height, width)
         return maps.permute(

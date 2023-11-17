@@ -35,19 +35,20 @@ def plot_overlay_heat_map(
     with auto_autocast(dtype=torch.float32):
         im = np.array(im)
 
+        print('plot', heat_map.size())
         heat_map = heat_map.permute(1, 0)  # swap width/height
         # shape height, width
 
         if crop is not None:
-            heat_map = heat_map.squeeze()[crop:-crop, crop:-crop]
+            heat_map = heat_map[crop:-crop, crop:-crop]
             im = im[crop:-crop, crop:-crop]
 
         if color_normalize:
-            plt_.imshow(heat_map.squeeze().cpu().numpy(), cmap="jet")
+            plt_.imshow(heat_map.cpu().numpy(), cmap="jet")
         else:
             heat_map = heat_map.clamp_(min=0, max=1)
             plt_.imshow(
-                heat_map.squeeze().cpu().numpy(), cmap="jet", vmin=0.0, vmax=1.0
+                heat_map.cpu().numpy(), cmap="jet", vmin=0.0, vmax=1.0
             )
 
         im = torch.from_numpy(im).float() / 255
@@ -64,6 +65,8 @@ def plot_overlay_heat_map(
 
         if out_file is not None:
             plt.savefig(out_file)
+
+        plt.cla()
 
 
 class WordHeatMap:

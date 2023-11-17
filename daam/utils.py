@@ -137,10 +137,10 @@ def expand_image(
     h = image.size[1] 
 
     # shape 77, 1, 48, 80
-    print(heatmap.shape)
+    # print(heatmap.shape)
     heatmap = heatmap.unsqueeze(0).unsqueeze(0)
     # heatmap = heatmap
-    print(heatmap.shape)
+    # print(heatmap.shape)
 
     # The clamping fixes undershoot.
     im = F.interpolate(

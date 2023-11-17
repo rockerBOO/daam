@@ -103,6 +103,9 @@ class UNetCrossAttentionLocator(ModuleLocator[Attention]):
         Returns:
             `List[Attention]`: The list of cross-attention modules.
         """
+
+        # TODO Fix these modules so they work more similarly
+
         if hasattr(model, "up_blocks"):
             return self.x(model)
 
@@ -143,14 +146,17 @@ class UNetCrossAttentionLocator(ModuleLocator[Attention]):
 
     def y(self, model):
         blocks_list = []
-        # input_names = ['input'] * len(model.input_blocks)
-        # output_names = ['output'] * len(model.output_blocks)
+        input_names = ["input"] * len(model.input_blocks)
+        output_names = ["output"] * len(model.output_blocks)
 
-        for unet_block in itertools.chain(
-            model.input_blocks,
-            model.output_blocks,
-            [model.mid_block] if self.locate_middle_block else [],
+        for bi, (unet_block, name) in enumerate(
+            itertools.chain(
+                zip(model.input_blocks, input_names),
+                zip(model.output_blocks, output_names),
+                zip([model.mid_block], ["mid"]) if self.locate_middle_block else [],
+            )
         ):
+            print(f"BI {bi}")
             for module in unet_block.modules():
                 if "SpatialTransformer" in module.__class__.__name__:
                     blocks = []
@@ -158,8 +164,6 @@ class UNetCrossAttentionLocator(ModuleLocator[Attention]):
                     for transformer_block in module.transformer_blocks:
                         blocks.append(transformer_block.attn2)
 
-                    print("restrict", self.restrict)
-                    print("blocks", len(blocks), [idx for idx, b in enumerate(blocks)])
                     blocks = [
                         b
                         for idx, b in enumerate(blocks)
@@ -167,8 +171,12 @@ class UNetCrossAttentionLocator(ModuleLocator[Attention]):
                     ]
                     blocks_list.extend(blocks)
 
-                    # names = [f'{name}-attn-{i}' for i in range(len(blocks)) if self.restrict is None or i in self.restrict]
-                    # self.layer_names.extend(names)
+                    names = [
+                        f"{name}-attn-{i}"
+                        for i in range(len(blocks))
+                        if self.restrict is None or i in self.restrict
+                    ]
+                    self.layer_names.extend(names)
 
         print(f"DAAM blocks: {len(blocks_list)}")
         print(f"DAAM layer_names: {len(self.layer_names)}")
