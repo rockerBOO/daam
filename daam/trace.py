@@ -17,7 +17,7 @@ from .hook import (
     ObjectHooker,
     UNetCrossAttentionLocator,
 )
-from .utils import auto_autocast, cache_dir
+from .utils import auto_autocast, cache_dir, tensor2img
 
 __all__ = ["trace", "DiffusionHeatMapHooker", "GlobalHeatMap"]
 
@@ -163,22 +163,26 @@ class DiffusionHeatMapHooker(AggregateHooker):
                 if (head_idx is None or head_idx == head) and (
                     layer_idx is None or layer_idx == layer
                 ):
-                    h = self.img_height // 2
-                    w = self.img_width // 2
-                    # h = self.img_height
-                    # w = self.img_width
-                    # shape 77, 1, 48, 80
-                    print("permuting the image", heat_map.size())
-                    heat_map = heat_map.unsqueeze(1).permute(0, 1, 3, 2).clone()
-                    # heat_map = heat_map.unsqueeze(1).permute(0, 1, 2, 3).clone()
-                    print("permuting post", heat_map.size())
-
-                    # The clamping fixes undershoot.
-                    heat_map = F.interpolate(
-                        heat_map, size=(w, h), mode="bicubic"
-                    ).clamp_(min=0)
-
-                    print("post interpolation", heat_map.size())
+                    # h = self.img_height // self.sample_size
+                    # w = self.img_width // self.sample_size
+                    # w = self.img_width // 8
+                    # h = self.img_height // 8
+                    # # h = self.img_height
+                    # # w = self.img_width
+                    # # shape 77, 1, 48, 80
+                    # print("compute_global_heat_map")
+                    # print("heatmap size", heat_map.size())
+                    # print("permuting the image", heat_map.size())
+                    # heat_map = heat_map.unsqueeze(1).permute(0, 1, 3, 2).clone()
+                    # # heat_map = heat_map.unsqueeze(1).permute(0, 1, 2, 3).clone()
+                    # print("permuting post", heat_map.size())
+                    #
+                    # # The clamping fixes undershoot.
+                    # heat_map = F.interpolate(
+                    #     heat_map.unsqueeze(0).permute(1, 0, 3, 2), size=(w, h), mode="bicubic"
+                    # ).clamp_(min=0)
+                    # #
+                    # print("post interpolation", heat_map.size())
 
                     # for i, map in enumerate(heat_map):
                     #     plt.imshow(map.squeeze().cpu().numpy(), cmap="jet")
@@ -188,6 +192,46 @@ class DiffusionHeatMapHooker(AggregateHooker):
 
                     all_merges.append(heat_map)
 
+            def get_max_tensor_width_height(tensors):
+                maxes = {(sum(m.size()), m.size(1), m.size(2)) for m in tensors}
+
+                max_max = -1
+                max_w = -1
+                max_h = -1
+                for max, w, h in maxes:
+                    if max > max_max:
+                        max_max = max
+
+                        max_w = w
+                        max_h = h
+
+                assert max_w is not -1
+                assert max_h is not -1
+
+                return max_w, max_h
+
+            w, h = get_max_tensor_width_height(all_merges)
+
+            # we want to interpolate the dimensions so they are all the same size
+            for i, merge in enumerate(all_merges):
+                # The clamping fixes undershoot.
+                print('merge', merge.unsqueeze(0).permute(1, 0, 2, 3).size())
+                heat_map = F.interpolate(
+                    merge.unsqueeze(0).permute(1, 0, 3, 2),
+                    size=(w, h),
+                    mode="bicubic",
+                ).clamp_(min=0)
+                all_merges[i] = heat_map
+                # if layer == 1 and head == 1:
+                #     [
+                #         tensor2img(hm.squeeze()).save(
+                #             f"./heatmaps/{i}-{ihm}-{w}-{h}-merged.png"
+                #         )
+                #         for ihm, hm in enumerate(heat_map)
+                #     ]
+
+            # x = set()
+            print({m.size() for m in all_merges})
             try:
                 maps = torch.stack(all_merges, dim=0)
             except RuntimeError:
@@ -221,13 +265,18 @@ class VAEHooker(ObjectHooker[AutoencoderKL]):
     ):
         output = hk_self.monkey_super("decode", z, *args, **kwargs)
 
-        print([img.size() for img in output])
+        print("vae decoded", [img.size() for img in output])
+
+        # print("permuted", [img.squeeze().permute(2, 1, 0).size() for img in output])
         images = [
-            to_pil_image(img.permute(1, 2, 0).float().cpu(), do_rescale=True)
+            to_pil_image(img.permute(1, 2, 0).cpu(), do_rescale=True)
             if len(img.size()) == 2
-            else to_pil_image(img.squeeze().float().cpu(), do_rescale=True)
+            else to_pil_image(img.squeeze().cpu(), do_rescale=True)
             for img in output
         ]
+
+        print("post vae to pil image", [img.size for img in images])
+        [img.save(f"post-vae-img-{i:02d}.png") for i, img in enumerate(images)]
 
         hk_self.parent_trace.last_image = images[len(images) - 1]
         return output
@@ -319,28 +368,22 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         Returns:
             `List[Tuple[int, torch.Tensor]]`: the list of heat maps across heads.
         """
-        print("x", x.size())
         h = int(math.ceil(math.sqrt(x.size(1) * self.img_width / self.img_height)))
         w = int(math.ceil(math.sqrt(x.size(1) * self.img_height / self.img_width)))
         maps = []
-        print("x before", x.size())
         x = x.permute(2, 0, 1)
-        print("x after", x.size())
 
         with auto_autocast(dtype=torch.float32):
             for i, map_ in enumerate(x):
-                print(map_.size())
+                print("pre view size", map_.size())
                 map_ = map_.view(map_.size(0), w, h)
                 map_ = map_[map_.size(0) // 2 :]  # Filter out unconditional
-                print(f"map {map_.size()}")
+                print(f"view w, h {map_.size()}")
 
                 # print(map_.unsqueeze(1).size())
                 # to_pil_image(map_.unsqueeze(1).cpu(), do_rescale=True).save("heatmap_{i}.png")
 
                 maps.append(map_)
-
-            # import sys
-            # sys.exit(1)
 
         maps = torch.stack(maps, 0)  # shape: (tokens, heads, height, width)
         return maps.permute(

@@ -2,14 +2,22 @@ from collections import defaultdict
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Dict, Iterable, Set, Tuple
+import math
 
 import numpy as np
 import spacy.tokens
 import torch
 from matplotlib import pyplot as plt
+from PIL import Image
 
 from .evaluate import compute_ioa
-from .utils import auto_autocast, cached_nlp, compute_token_merge_indices, expand_image
+from .utils import (
+    auto_autocast,
+    cached_nlp,
+    compute_token_merge_indices,
+    expand_image,
+    tensor2img,
+)
 
 __all__ = [
     "GlobalHeatMap",
@@ -20,24 +28,99 @@ __all__ = [
 ]
 
 
+# Get the current figure of a matplotlib
+# Making it more clear while learning
+def plot_to_current_figure():
+    return plt.gcf()
+
+
+# Get the PIL image from a plot figure or the current plot
+def fig2img(fig):
+    """Convert a Matplotlib figure to a PIL Image and return it"""
+    import io
+
+    buf = io.BytesIO()
+
+    fig.savefig(buf)
+    buf.seek(0)
+    img = Image.open(buf)
+    return img
+
+
+def disable_fig_axis(fig=None, plt_=None):
+    if fig is None:
+        fig = plot_to_current_figure()
+
+    if plt_ is None:
+        plt_ = plt
+
+    plt_.axis("off")  # turns off axes
+    plt_.axis("tight")  # gets rid of white border
+    # plt_.axis("image")  # square up the image instead of filling the "figure" space
+
+    # ax = plt.gca()
+    # ax.get_xaxis().set_visible(False)
+    # ax.get_yaxis().set_visible(False)
+    #
+    # plt_.tight_layout()
+
+    return fig
+
+
 @torch.no_grad()
 def plot_overlay_heat_map(
     im, heat_map, word=None, out_file=None, crop=None, color_normalize=True, ax=None
 ):
     # type: (PIL.Image.Image | np.ndarray, torch.Tensor, str, Path, int, bool, plt.Axes) -> None
     if ax is None:
+        dpi = 100
+        header_size = 40
+        scale = 1.1
+        plt.rcParams.update(
+            {
+                "font.size": 24,
+                "text.color": "#35A772",
+                "axes.labelcolor": "#35A772",
+                "figure.facecolor": "#021615",
+                "figure.figsize": (
+                    math.ceil((im.size[0] / dpi) * scale),
+                    math.ceil(((im.size[1] + header_size) / dpi) * scale),
+                ),
+                "figure.dpi": dpi,
+                "savefig.bbox": "tight",
+                "savefig.pad_inches": 0,
+                "figure.frameon": False,
+                "axes.spines.left": False,
+                "axes.spines.right": False,
+                "axes.spines.top": False,
+                "axes.spines.bottom": False,
+                "ytick.major.left": False,
+                "ytick.major.right": False,
+                "ytick.minor.left": False,
+                "xtick.major.top": False,
+                "xtick.major.bottom": False,
+                "xtick.minor.top": False,
+                "xtick.minor.bottom": False,
+            }
+        )
         plt.clf()
-        plt.rcParams.update({"font.size": 24})
+        plt.tight_layout()
         plt_ = plt
     else:
         plt_ = ax
 
     with auto_autocast(dtype=torch.float32):
+        print("im size", im.size)
+        im.save("testing-img-size.png")
+        tensor2img(heat_map).save("heat_map.png")
         im = np.array(im)
+        print("nmpy im", im.shape)
 
-        print('plot', heat_map.size())
-        heat_map = heat_map.permute(1, 0)  # swap width/height
+        print("heatmap to plot", heat_map.size())
+        heat_map = heat_map.permute(1, 0)  # swap width/height to match numpy
         # shape height, width
+        tensor2img(heat_map).save("heat_map-after.png")
+        tensor2img(torch.from_numpy(im).float() / 255).save("img-after-numpy.png")
 
         if crop is not None:
             heat_map = heat_map[crop:-crop, crop:-crop]
@@ -47,15 +130,34 @@ def plot_overlay_heat_map(
             plt_.imshow(heat_map.cpu().numpy(), cmap="jet")
         else:
             heat_map = heat_map.clamp_(min=0, max=1)
-            plt_.imshow(
-                heat_map.cpu().numpy(), cmap="jet", vmin=0.0, vmax=1.0
-            )
+            plt_.imshow(heat_map.cpu().numpy(), cmap="jet", vmin=0.0, vmax=1.0)
 
         im = torch.from_numpy(im).float() / 255
-        print(f"im {im.size()} heat_map {heat_map.size()} {heat_map.unsqueeze(-1).size()}")
+        print(
+            f"im {im.size()} heat_map {heat_map.size()} {heat_map.unsqueeze(-1).size()}"
+        )
+
+        # print(im.permute(1, 0, 2).size(), heat_map.permute(1, 0, 2).size())
         im = torch.cat((im, (1 - heat_map.unsqueeze(-1))), dim=-1)
+        print("final image size", im.size(), im.numpy().shape)
+
+        # tensor2img(im).save("catted-img.png")
 
         plt_.imshow(im)
+
+        # fig = plt_.figure()
+        # size = fig.get_size_inches()*fig.dpi
+        #
+        # print("figure-size", size)
+
+        # disable_fig_axis(plt_=plt_)
+
+        img = fig2img(fig=plt_.gcf())
+
+        # print("fig2img result", img.size)
+        #
+        print("fig to pil img", img)
+        img.save("x-o.png")
 
         if word is not None:
             if ax is None:
@@ -64,9 +166,7 @@ def plot_overlay_heat_map(
                 ax.set_title(word)
 
         if out_file is not None:
-            plt.savefig(out_file)
-
-        plt.cla()
+            plt_.savefig(out_file)
 
 
 class WordHeatMap:
@@ -83,6 +183,7 @@ class WordHeatMap:
         self, image, out_file=None, color_normalize=True, ax=None, **expand_kwargs
     ):
         # type: (PIL.Image.Image | np.ndarray, Path, bool, plt.Axes, Dict[str, Any]) -> None
+        print("generated pil image to overlay", image.size)
         plot_overlay_heat_map(
             image,
             self.expand_as(image, **expand_kwargs),

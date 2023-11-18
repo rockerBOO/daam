@@ -8,9 +8,13 @@ from typing import TypeVar
 import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image
+from PIL import Image
 import spacy
 import torch
 import torch.nn.functional as F
+
+from transformers.image_transforms import to_pil_image
+
 
 __all__ = [
     "set_seed",
@@ -134,7 +138,7 @@ def expand_image(
     # w = self.img_width // 8
 
     w = image.size[0]
-    h = image.size[1] 
+    h = image.size[1]
 
     # shape 77, 1, 48, 80
     # print(heatmap.shape)
@@ -143,9 +147,7 @@ def expand_image(
     # print(heatmap.shape)
 
     # The clamping fixes undershoot.
-    im = F.interpolate(
-        heatmap, size=(w, h), mode="bicubic"
-    ).clamp_(min=0)
+    im = F.interpolate(heatmap, size=(w, h), mode="bicubic").clamp_(min=0)
 
     # im = heatmap.unsqueeze(0).unsqueeze(0)
     # im = F.interpolate(
@@ -163,3 +165,20 @@ def expand_image(
     print(f"expanded as {im.size()}")
 
     return im
+
+
+def tensor2img(tensor):
+    if len(tensor.size()) == 2:
+        # add a channel
+        tensor = tensor.unsqueeze(-1)
+
+    if tensor.get_device() != -1:
+        tensor = tensor.float().detach().cpu()
+
+    if tensor.size(2) > 3:
+        print(f"invalid number of channels to tensor2img {tensor.size()}")
+
+    if len(tensor.size()) > 3:
+        print(f"invalid size to tensor2img {tensor.size()}")
+
+    return to_pil_image(tensor, do_rescale=True)
