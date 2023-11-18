@@ -110,17 +110,10 @@ def plot_overlay_heat_map(
         plt_ = ax
 
     with auto_autocast(dtype=torch.float32):
-        print("im size", im.size)
-        im.save("testing-img-size.png")
-        tensor2img(heat_map).save("heat_map.png")
         im = np.array(im)
-        print("nmpy im", im.shape)
 
-        print("heatmap to plot", heat_map.size())
         heat_map = heat_map.permute(1, 0)  # swap width/height to match numpy
         # shape height, width
-        tensor2img(heat_map).save("heat_map-after.png")
-        tensor2img(torch.from_numpy(im).float() / 255).save("img-after-numpy.png")
 
         if crop is not None:
             heat_map = heat_map[crop:-crop, crop:-crop]
@@ -133,31 +126,9 @@ def plot_overlay_heat_map(
             plt_.imshow(heat_map.cpu().numpy(), cmap="jet", vmin=0.0, vmax=1.0)
 
         im = torch.from_numpy(im).float() / 255
-        print(
-            f"im {im.size()} heat_map {heat_map.size()} {heat_map.unsqueeze(-1).size()}"
-        )
-
-        # print(im.permute(1, 0, 2).size(), heat_map.permute(1, 0, 2).size())
         im = torch.cat((im, (1 - heat_map.unsqueeze(-1))), dim=-1)
-        print("final image size", im.size(), im.numpy().shape)
-
-        # tensor2img(im).save("catted-img.png")
 
         plt_.imshow(im)
-
-        # fig = plt_.figure()
-        # size = fig.get_size_inches()*fig.dpi
-        #
-        # print("figure-size", size)
-
-        # disable_fig_axis(plt_=plt_)
-
-        img = fig2img(fig=plt_.gcf())
-
-        # print("fig2img result", img.size)
-        #
-        print("fig to pil img", img)
-        img.save("x-o.png")
 
         if word is not None:
             if ax is None:
@@ -183,7 +154,6 @@ class WordHeatMap:
         self, image, out_file=None, color_normalize=True, ax=None, **expand_kwargs
     ):
         # type: (PIL.Image.Image | np.ndarray, Path, bool, plt.Axes, Dict[str, Any]) -> None
-        print("generated pil image to overlay", image.size)
         plot_overlay_heat_map(
             image,
             self.expand_as(image, **expand_kwargs),

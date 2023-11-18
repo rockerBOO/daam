@@ -3,12 +3,11 @@ import random
 import sys
 from functools import lru_cache
 from pathlib import Path
-from typing import TypeVar
+from typing import TypeVar, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 import PIL.Image
-from PIL import Image
 import spacy
 import torch
 import torch.nn.functional as F
@@ -141,10 +140,7 @@ def expand_image(
     h = image.size[1]
 
     # shape 77, 1, 48, 80
-    # print(heatmap.shape)
     heatmap = heatmap.unsqueeze(0).unsqueeze(0)
-    # heatmap = heatmap
-    # print(heatmap.shape)
 
     # The clamping fixes undershoot.
     im = F.interpolate(heatmap, size=(w, h), mode="bicubic").clamp_(min=0)
@@ -161,8 +157,6 @@ def expand_image(
         im = (im > threshold).float()
 
     im = im.cpu().detach().squeeze()
-
-    print(f"expanded as {im.size()}")
 
     return im
 
@@ -182,3 +176,18 @@ def tensor2img(tensor):
         print(f"invalid size to tensor2img {tensor.size()}")
 
     return to_pil_image(tensor, do_rescale=True)
+
+
+# Measure the dimensions of the tensor and get the largest one by dimension size
+# tensor.Size([77, 29, 40]) tensor.Size([77, 22, 38]) tensor.Size([77, 29, 18])
+def get_max_tensor_width_height(tensors) -> Tuple[int, int]:
+    maxes = {(sum(m.size()), m.size(1), m.size(2)) for m in tensors}
+
+    max_sum = -1
+    max = (-1, -1)
+    for m, w, h in maxes:
+        if m > max_sum:
+            max = (w, h)
+            max_sum = m
+
+    return max
