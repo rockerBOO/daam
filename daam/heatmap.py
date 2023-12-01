@@ -1,7 +1,7 @@
 from collections import defaultdict, UserList
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Dict, Iterable, Set, Tuple
+from typing import Any, Dict, Iterable, Set, Tuple, List
 import math
 
 import numpy as np
@@ -203,7 +203,7 @@ class ParsedHeatMap:
 
 
 class GlobalHeatMap:
-    def __init__(self, tokenizer: Any, prompt: str, heat_maps: torch.Tensor):
+    def __init__(self, tokenizer: Any, prompt: str, heat_maps: List[torch.Tensor]):
         self.tokenizer = tokenizer
         self.heat_maps = heat_maps
         self.prompt = prompt
@@ -216,7 +216,7 @@ class GlobalHeatMap:
             self.tokenizer, self.prompt, word, word_idx, offset_idx
         )
 
-        # print(f"DAAM WordHeatMap {self} {batch_idx} {merge_idxs} {word} {word_idx}")
+        print(f"DAAM WordHeatMap {self} {batch_idx} {merge_idxs} {word} {word_idx}")
 
         return WordHeatMap(
             self.heat_maps[batch_idx][merge_idxs].mean(0), word, word_idx

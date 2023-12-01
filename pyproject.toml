@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "daam"
+version = "0.1.1"
+description = ""
+authors = ["rockerBOO <rockerboo@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "error",
+    # "ignore::UserWarning",
+    # note the use of single quote below to denote "raw" strings in TOML
+    'ignore:Pydantic V1 style `@validator` validators are deprecated',
+]
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

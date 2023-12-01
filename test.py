@@ -177,7 +177,7 @@ def main(args):
                     for word in args.words.split(","):
                         word = word.strip()
                         heat_map = global_heat_map.compute_word_heat_map(word, batch_idx=i)
-                        daam_img_filename = f"{word}-{i:02d}-daam.png"
+                        daam_img_filename = f"{i:02d}-{word}-daam.png"
                         print(f"Saving daam heatmap to {daam_img_filename}")
                         heat_map.plot_overlay(img, out_file=daam_img_filename)
 

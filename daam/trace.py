@@ -423,17 +423,12 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         if attention_probs.shape[-1] == self.context_size:
             maps = self._unravel_attn(attention_probs)
 
-            # print(query.shape, attention_probs.shape, batch_size, maps.size())
-            # print(attention_probs.shape[0], "//", batch_size, " > ", maps.shape[0])
-            # for head_idx, heatmap in enumerate(maps):
-            # breakpoint()
+            # batch_size is 2 at batch of 1. We match the batch size with the 
+            # the head size and then see the difference 
             for batch_idx, batch in enumerate(
-                maps.vsplit(attention_probs.shape[0] // maps.shape[0])
-                if attention_probs.shape[0] // batch_size < maps.shape[0]
-                else [maps]
+                maps.vsplit(maps.size(0) // ((maps.size(0) * 2) // batch_size))
             ):
                 for head_idx, heatmap in enumerate(batch):
-                    # print("heatmaps: ", len(self.parent_trace.heatmaps()))
                     self.parent_trace.heatmaps()[batch_idx].update(
                         self.layer_idx, head_idx, heatmap
                     )

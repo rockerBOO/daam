@@ -3,7 +3,7 @@ import random
 import sys
 from functools import lru_cache
 from pathlib import Path
-from typing import TypeVar, Tuple
+from typing import TypeVar, Tuple, List, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -85,8 +85,11 @@ def cache_dir() -> Path:
 
 def compute_token_merge_indices(
     tokenizer, prompt: str, word: str, word_idx: int = None, offset_idx: int = 0
-):
+) -> Tuple[List[int], Union[None, int]]:
     merge_idxs = []
+
+    if prompt == "":
+        raise ValueError("Prompt cannot be empty")
     tokens = tokenizer.tokenize(prompt.lower())
     if word_idx is None:
         word = word.lower()
@@ -99,11 +102,11 @@ def compute_token_merge_indices(
         for indice in start_indices:
             merge_idxs += [i + indice for i in range(0, len(search_tokens))]
         if not merge_idxs:
-            raise ValueError(f"Search word {word} not found in prompt!")
+            raise ValueError(f"Word '{word}' not found in the prompt.")
     else:
         merge_idxs.append(word_idx)
 
-    return [x + 1 for x in merge_idxs], word_idx  # Offset by 1.
+    return [x for x in merge_idxs], word_idx  # Offset by 1.
 
 
 nlp = None
