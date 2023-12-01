@@ -87,6 +87,7 @@ class DiffusionHeatMapHooker(AggregateHooker):
             restrict={0} if low_memory else None,
             locate_middle_block=locate_middle,
         )
+        self.head_dims = [8] or [5, 10, 20, 20]
         self.last_prompts: List[str] = [""]
         self.last_images: List[Image] = [None]
         self.time_idx = 0
@@ -423,14 +424,17 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         if attention_probs.shape[-1] == self.context_size:
             maps = self._unravel_attn(attention_probs)
 
+            # print(query.shape, attention_probs.shape, batch_size, maps.size())
+            # print(attention_probs.shape[0], "//", batch_size, " > ", maps.shape[0])
             # for head_idx, heatmap in enumerate(maps):
             # breakpoint()
             for batch_idx, batch in enumerate(
-                maps.vsplit(attention_probs.shape[0] // 16)
-                if attention_probs.shape[0] > 16
+                maps.vsplit(attention_probs.shape[0] // maps.shape[0])
+                if attention_probs.shape[0] // batch_size < maps.shape[0]
                 else [maps]
             ):
                 for head_idx, heatmap in enumerate(batch):
+                    # print("heatmaps: ", len(self.parent_trace.heatmaps()))
                     self.parent_trace.heatmaps()[batch_idx].update(
                         self.layer_idx, head_idx, heatmap
                     )
