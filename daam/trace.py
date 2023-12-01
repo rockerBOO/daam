@@ -213,8 +213,6 @@ class DiffusionHeatMapHooker(AggregateHooker):
                     "No heat maps found. Did you forget to call `with trace(...)` during generation?"
                 )
 
-        # print("all maps" , all_maps.size())
-
         all_all_maps = []
         for i, maps in enumerate(all_maps):
             maps = maps.mean(0)[:, 0]
@@ -423,11 +421,7 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         if attention_probs.shape[-1] == self.context_size:
             maps = self._unravel_attn(attention_probs)
 
-            # batch_size is 2 at batch of 1. We match the batch size with the 
-            # the head size and then see the difference 
-            for batch_idx, batch in enumerate(
-                maps.vsplit(maps.size(0) // ((maps.size(0) * 2) // batch_size))
-            ):
+            for batch_idx, batch in enumerate(maps.vsplit(batch_size // 2)):
                 for head_idx, heatmap in enumerate(batch):
                     self.parent_trace.heatmaps()[batch_idx].update(
                         self.layer_idx, head_idx, heatmap

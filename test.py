@@ -22,6 +22,8 @@ from diffusers import (
     KDPM2AncestralDiscreteScheduler,
     AutoencoderKL,
 )
+
+from diffusers.models.attention_processor import AttnProcessor2_0
 from tqdm import tqdm
 import numpy as np
 import torch
@@ -123,7 +125,9 @@ def main(args):
         **sched_init_args,
     )
 
-    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse")
+    vae = AutoencoderKL.from_pretrained(
+        "stabilityai/sd-vae-ft-mse", use_safetensors=True, torch_dtype=torch.float16
+    )
 
     pipe = StableDiffusionPipeline.from_pretrained(
         model_id,
@@ -134,7 +138,12 @@ def main(args):
         scheduler=scheduler,
         vae=vae,
     )
+
+    pipe.unet.set_attn_processor(AttnProcessor2_0())
+
     pipe = auto_device(pipe)
+    # print("device", pipe.device)
+    # print("dtype", pipe.unet.dtype, pipe.text_encoder.dtype, pipe.vae.dtype)
 
     accelerator = accelerate.Accelerator()
 
@@ -176,7 +185,9 @@ def main(args):
 
                     for word in args.words.split(","):
                         word = word.strip()
-                        heat_map = global_heat_map.compute_word_heat_map(word, batch_idx=i)
+                        heat_map = global_heat_map.compute_word_heat_map(
+                            word, batch_idx=i
+                        )
                         daam_img_filename = f"{i:02d}-{word}-daam.png"
                         print(f"Saving daam heatmap to {daam_img_filename}")
                         heat_map.plot_overlay(img, out_file=daam_img_filename)
