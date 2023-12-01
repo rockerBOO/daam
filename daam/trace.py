@@ -87,7 +87,6 @@ class DiffusionHeatMapHooker(AggregateHooker):
             restrict={0} if low_memory else None,
             locate_middle_block=locate_middle,
         )
-        self.head_dims = [8] or [5, 10, 20, 20]
         self.last_prompts: List[str] = [""]
         self.last_images: List[Image] = [None]
         self.time_idx = 0
