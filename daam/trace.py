@@ -11,7 +11,7 @@ from transformers.image_transforms import to_pil_image
 from matplotlib import pyplot as plt
 
 from .experiment import GenerationExperiment
-from .heatmap import GlobalHeatMap, RawHeatMapCollection
+from .heatmap import GlobalHeatMap, RawHeatMapCollection, AggregateCollection
 from .hook import (
     AggregateHooker,
     ObjectHooker,
@@ -37,12 +37,17 @@ class DiffusionHeatMapHooker(AggregateHooker):
         vae=None,  # VAE Model
         tokenizer=None,  # CLIPTokenizer
         image_processor=None,
-        vae_scale_factor=None,  #
-        sample_size=None,  # sample_size for the UNet
+        vae_scale_factor: Union[None, int] = None,  #
+        sample_size: Union[None, int] = None,  # sample_size for the UNet
+        batch_size: Union[None, int] = None,
     ):
         self.img_width = width
         self.img_height = height
-        self.all_heat_maps = RawHeatMapCollection()
+        self.all_heat_maps = (
+            AggregateCollection([RawHeatMapCollection() for _ in range(batch_size)])
+            if batch_size is not None
+            else AggregateCollection([RawHeatMapCollection()])
+        )
 
         if pipeline is not None and isinstance(pipeline, StableDiffusionPipeline):
             self.unet = pipeline.unet
@@ -82,8 +87,8 @@ class DiffusionHeatMapHooker(AggregateHooker):
             restrict={0} if low_memory else None,
             locate_middle_block=locate_middle,
         )
-        self.last_prompt: str = ""
-        self.last_image: Image = None
+        self.last_prompts: List[str] = [""]
+        self.last_images: List[Image] = [None]
         self.time_idx = 0
         self._gen_idx = 0
 
@@ -110,6 +115,12 @@ class DiffusionHeatMapHooker(AggregateHooker):
 
         super().__init__(modules)
 
+    def heatmaps(self):
+        return self.all_heat_maps
+
+    def set_heatmaps(self, heatmaps):
+        self.all_heat_maps = heatmaps
+
     def time_callback(self, *args, **kwargs):
         self.time_idx += 1
 
@@ -117,23 +128,31 @@ class DiffusionHeatMapHooker(AggregateHooker):
     def layer_names(self):
         return self.locator.layer_names
 
-    def to_experiment(self, path, seed=None, id=".", subtype=".", **compute_kwargs):
+    def to_experiments(self, path, seed=None, id=".", subtype=".", **compute_kwargs):
         # type: (Union[Path, str], int, str, str, Dict[str, Any]) -> GenerationExperiment
         """Exports the last generation call to a serializable generation experiment."""
 
-        return GenerationExperiment(
-            self.last_image,
-            self.compute_global_heat_map(**compute_kwargs).heat_maps,
-            self.last_prompt,
-            seed=seed,
-            id=id,
-            subtype=subtype,
-            path=path,
-            tokenizer=self.tokenizer,
-        )
+        return [
+            GenerationExperiment(
+                self.last_images,
+                self.compute_global_heat_map(**compute_kwargs).heat_maps,
+                self.last_prompt,
+                seed=seed,
+                id=id,
+                subtype=subtype,
+                path=path,
+                tokenizer=self.tokenizer,
+            )
+            for image in self.last_images
+        ]
 
     def compute_global_heat_map(
-        self, prompt=None, head_idx=None, layer_idx=None, normalize=False
+        self,
+        prompt=None,
+        batch_idx=None,
+        head_idx=None,
+        layer_idx=None,
+        normalize=False,
     ):
         # type: (str, List[float],  int, int, bool) -> GlobalHeatMap
         """
@@ -149,7 +168,7 @@ class DiffusionHeatMapHooker(AggregateHooker):
         Returns:
             A heat map object for computing word-level heat maps.
         """
-        heat_maps = self.all_heat_maps
+        batch_heat_maps = self.heatmaps()
 
         assert prompt is not None or len(self.last_prompt) > 0
 
@@ -159,34 +178,45 @@ class DiffusionHeatMapHooker(AggregateHooker):
         all_merges = []
 
         with auto_autocast(dtype=torch.float32):
-            for (layer, head), heat_map in heat_maps:
-                if (head_idx is None or head_idx == head) and (
-                    layer_idx is None or layer_idx == layer
-                ):
-                    all_merges.append(heat_map)
+            batch_merges = []
+            for heat_maps in batch_heat_maps:
+                merges = []
+                # print(f"heamaps inside batch {len(heat_maps)}")
+                for (layer, head), heat_map in heat_maps:
+                    # print(f"layer {layer} head {head} heat_map size {heat_map.size()}")
+                    if (head_idx is None or head_idx == head) and (
+                        layer_idx is None or layer_idx == layer
+                    ):
+                        merges.append(heat_map)
 
-            w, h = get_max_tensor_width_height(all_merges)
+                w, h = get_max_tensor_width_height(merges)
 
-            # we want to interpolate the dimensions so they are all the same size
-            for i, merge in enumerate(all_merges):
-                # The clamping fixes undershoot.
-                heat_map = F.interpolate(
-                    merge.unsqueeze(0).permute(1, 0, 3, 2),
-                    size=(w, h),
-                    mode="bicubic",
-                ).clamp_(min=0)
-                all_merges[i] = heat_map
+                # we want to interpolate the dimensions so they are all the same size
+                for i, merge in enumerate(merges):
+                    # The clamping fixes undershoot.
+                    heat_map = F.interpolate(
+                        merge.unsqueeze(0).permute(1, 0, 3, 2),
+                        size=(w, h),
+                        mode="bicubic",
+                    ).clamp_(min=0)
+                    merges[i] = heat_map
 
-            try:
-                maps = torch.stack(all_merges, dim=0)
-            except RuntimeError:
-                if head_idx is not None or layer_idx is not None:
-                    raise RuntimeError("No heat maps found for the given parameters.")
-                else:
-                    raise RuntimeError(
-                        "No heat maps found. Did you forget to call `with trace(...)` during generation?"
-                    )
+                all_merges.append(merges)
 
+        try:
+            all_maps = torch.stack([torch.stack(x, 0) for x in all_merges], dim=0)
+        except RuntimeError:
+            if head_idx is not None or layer_idx is not None:
+                raise RuntimeError("No heat maps found for the given parameters.")
+            else:
+                raise RuntimeError(
+                    "No heat maps found. Did you forget to call `with trace(...)` during generation?"
+                )
+
+        # print("all maps" , all_maps.size())
+
+        all_all_maps = []
+        for i, maps in enumerate(all_maps):
             maps = maps.mean(0)[:, 0]
             maps = maps[
                 : len(self.tokenizer.tokenize(prompt)) + 2
@@ -197,7 +227,11 @@ class DiffusionHeatMapHooker(AggregateHooker):
                     maps[1:-1].sum(0, keepdim=True) + 1e-6
                 )  # drop out [SOS] and [PAD] for proper probabilities
 
-        return GlobalHeatMap(self.tokenizer, prompt, maps)
+            # print("merging maps", maps.size())
+            all_all_maps.append(maps)
+
+        # print("all all maps", len(all_all_maps), [m.size() for m in all_all_maps])
+        return GlobalHeatMap(self.tokenizer, prompt, all_all_maps)
 
 
 class VAEHooker(ObjectHooker[AutoencoderKL]):
@@ -210,14 +244,21 @@ class VAEHooker(ObjectHooker[AutoencoderKL]):
     ):
         output = hk_self.monkey_super("decode", z, *args, **kwargs)
 
-        images = [
-            to_pil_image(img.permute(1, 2, 0).cpu(), do_rescale=True)
-            if len(img.size()) == 2
-            else to_pil_image(img.squeeze().cpu(), do_rescale=True)
-            for img in output
-        ]
+        images = []
+        # Outputs are all the possible batches being decoded
+        for imgs in output:
+            # Each batch can have multiple images
+            for img in imgs:
+                if len(img.size()) == 2:
+                    images.append(
+                        to_pil_image(
+                            img.unsqueeze(0).permute(1, 2, 0).cpu(), do_rescale=True
+                        )
+                    )
+                else:
+                    images.append(to_pil_image(img.squeeze().cpu(), do_rescale=True))
 
-        hk_self.parent_trace.last_image = images[len(images) - 1]
+        hk_self.parent_trace.last_images = images
         return output
 
     def _hook_impl(self):
@@ -227,13 +268,15 @@ class VAEHooker(ObjectHooker[AutoencoderKL]):
 class PipelineHooker(ObjectHooker[StableDiffusionPipeline]):
     def __init__(self, pipeline: StableDiffusionPipeline, parent_trace: "trace"):
         super().__init__(pipeline)
-        self.heat_maps = parent_trace.all_heat_maps
+        # self.heat_maps = parent_trace.all_heat_maps
         self.parent_trace = parent_trace
 
     def _hooked_encode_prompt(
         hk_self,
         _: StableDiffusionPipeline,
         prompt: Union[str, List[str]],
+        device,
+        num_images_per_prompt,
         *args,
         **kwargs,
     ):
@@ -246,14 +289,25 @@ class PipelineHooker(ObjectHooker[StableDiffusionPipeline]):
         else:
             last_prompt = prompt
 
-        hk_self.heat_maps.clear()
+        # # create batched heatmaps
+        # hk_self.parent_trace.all_heat_maps =
+        hk_self.parent_trace.set_heatmaps(
+            AggregateCollection(
+                [RawHeatMapCollection() for _ in range(num_images_per_prompt)]
+            )
+        )
+
+        # print("setup heatmaps collection", hk_self.parent_trace.heatmaps())
+
         hk_self.parent_trace.last_prompt = last_prompt
-        ret = hk_self.monkey_super("_encode_prompt", prompt, *args, **kwargs)
+        ret = hk_self.monkey_super(
+            "encode_prompt", prompt, device, num_images_per_prompt, *args, **kwargs
+        )
 
         return ret
 
     def _hook_impl(self):
-        self.monkey_patch("_encode_prompt", self._hooked_encode_prompt)
+        self.monkey_patch("encode_prompt", self._hooked_encode_prompt)
 
 
 class UNetCrossAttentionHooker(ObjectHooker[Attention]):
@@ -271,7 +325,7 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         data_dir: Union[str, Path] = None,
     ):
         super().__init__(module)
-        self.heat_maps = parent_trace.all_heat_maps
+        self.parent_trace = parent_trace
         self.context_size = context_size
         self.layer_idx = layer_idx
         self.latent_hw = latent_hw
@@ -369,8 +423,17 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         if attention_probs.shape[-1] == self.context_size:
             maps = self._unravel_attn(attention_probs)
 
-            for head_idx, heatmap in enumerate(maps):
-                self.heat_maps.update(self.layer_idx, head_idx, heatmap)
+            # for head_idx, heatmap in enumerate(maps):
+            # breakpoint()
+            for batch_idx, batch in enumerate(
+                maps.vsplit(attention_probs.shape[0] // 16)
+                if attention_probs.shape[0] > 16
+                else [maps]
+            ):
+                for head_idx, heatmap in enumerate(batch):
+                    self.parent_trace.heatmaps()[batch_idx].update(
+                        self.layer_idx, head_idx, heatmap
+                    )
 
         hidden_states = torch.bmm(attention_probs, value)
         hidden_states = batch_to_head_dim(attn, hidden_states)

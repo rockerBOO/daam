@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import defaultdict, UserList
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Dict, Iterable, Set, Tuple
@@ -154,6 +154,10 @@ class WordHeatMap:
         self, image, out_file=None, color_normalize=True, ax=None, **expand_kwargs
     ):
         # type: (PIL.Image.Image | np.ndarray, Path, bool, plt.Axes, Dict[str, Any]) -> None
+
+        # print(
+        #     f"DAAM WordHeatMap {self} {image.size} {self.word} {self.word_idx} {len(self.heatmap)} {self.heatmap.size()}"
+        # )
         plot_overlay_heat_map(
             image,
             self.expand_as(image, **expand_kwargs),
@@ -167,6 +171,9 @@ class WordHeatMap:
         self, image, absolute=False, threshold=None, plot=False, **plot_kwargs
     ):
         # type: (PIL.Image.Image, bool, float, bool, Dict[str, Any]) -> torch.Tensor
+        # print(
+        #     f"DAAM expand_as {self} {image.size} {self.word} {self.word_idx} {len(self.heatmap)} {self.heatmap.size()}"
+        # )
         im = expand_image(
             self.heatmap, image, absolute=absolute, threshold=threshold, plot=plot
         )
@@ -203,12 +210,17 @@ class GlobalHeatMap:
         self.compute_word_heat_map = lru_cache(maxsize=50)(self.compute_word_heat_map)
 
     def compute_word_heat_map(
-        self, word: str, word_idx: int = None, offset_idx: int = 0
+        self, word: str, word_idx: int = None, offset_idx: int = 0, batch_idx: int = 0
     ) -> WordHeatMap:
         merge_idxs, word_idx = compute_token_merge_indices(
             self.tokenizer, self.prompt, word, word_idx, offset_idx
         )
-        return WordHeatMap(self.heat_maps[merge_idxs].mean(0), word, word_idx)
+
+        # print(f"DAAM WordHeatMap {self} {batch_idx} {merge_idxs} {word} {word_idx}")
+
+        return WordHeatMap(
+            self.heat_maps[batch_idx][merge_idxs].mean(0), word, word_idx
+        )
 
     def parsed_heat_maps(self) -> Iterable[ParsedHeatMap]:
         for token in cached_nlp(self.prompt):
@@ -239,6 +251,20 @@ class GlobalHeatMap:
 RawHeatMapKey = Tuple[int, int, int]  # factor, layer, head
 
 
+class AggregateCollection(UserList):
+    def __init__(self, init_list):
+        self.data = init_list
+
+    def __len__(self):
+        return len(self.data)
+
+    def __setitem__(self, index, item):
+        self.data[index] = item
+
+    def append(self, item):
+        self.data.append(item)
+
+
 class RawHeatMapCollection:
     def __init__(self):
         self.ids_to_heatmaps: Dict[RawHeatMapKey, torch.Tensor] = defaultdict(
@@ -262,6 +288,9 @@ class RawHeatMapCollection:
 
     def __iter__(self):
         return iter(self.ids_to_heatmaps.items())
+
+    def __len__(self):
+        return len(self.ids_to_heatmaps.items())
 
     def clear(self):
         self.ids_to_heatmaps.clear()

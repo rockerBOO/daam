@@ -325,7 +325,6 @@ class GenerationExperiment:
 
         (path / self.subtype).mkdir(parents=True, exist_ok=True)
         torch.save(self, path / self.subtype / "generation.pt")
-        print(self.image)
         self.image.save(path / self.subtype / "output.png")
 
         with (path / "prompt.txt").open("w") as f:

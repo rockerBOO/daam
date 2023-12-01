@@ -156,7 +156,6 @@ class UNetCrossAttentionLocator(ModuleLocator[Attention]):
                 zip([model.mid_block], ["mid"]) if self.locate_middle_block else [],
             )
         ):
-            print(f"BI {bi}")
             for module in unet_block.modules():
                 if "SpatialTransformer" in module.__class__.__name__:
                     blocks = []
@@ -178,7 +177,7 @@ class UNetCrossAttentionLocator(ModuleLocator[Attention]):
                     ]
                     self.layer_names.extend(names)
 
-        print(f"DAAM blocks: {len(blocks_list)}")
-        print(f"DAAM layer_names: {len(self.layer_names)}")
+        # print(f"DAAM blocks: {len(blocks_list)}")
+        # print(f"DAAM layer_names: {len(self.layer_names)}")
 
         return blocks_list
