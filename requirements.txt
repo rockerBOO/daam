@@ -9,3 +9,4 @@ joblib
 ftfy
 spacy
 matplotlib >= 3.6.2
+scipy >= 1.11.4
