@@ -216,7 +216,9 @@ class GlobalHeatMap:
             self.tokenizer, self.prompt, word, word_idx, offset_idx
         )
 
-        print(f"DAAM WordHeatMap {self} {batch_idx} {merge_idxs} {word} {word_idx}")
+        # print(f"Prompt: {self.prompt}")
+        # print(f"DAAM WordHeatMap {self} {batch_idx} {merge_idxs} {word} {word_idx}")
+        # print(f"{len(self.heat_maps)} {self.heat_maps[batch_idx].size()} merge_idx {merge_idxs}")
 
         return WordHeatMap(
             self.heat_maps[batch_idx][merge_idxs].mean(0), word, word_idx

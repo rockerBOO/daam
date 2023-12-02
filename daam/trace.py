@@ -118,6 +118,9 @@ class DiffusionHeatMapHooker(AggregateHooker):
     def heatmaps(self):
         return self.all_heat_maps
 
+    def num_batches(self):
+        return len(self.all_heat_maps)
+
     def set_heatmaps(self, heatmaps):
         self.all_heat_maps = heatmaps
 
@@ -421,7 +424,9 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         if attention_probs.shape[-1] == self.context_size:
             maps = self._unravel_attn(attention_probs)
 
-            for batch_idx, batch in enumerate(maps.vsplit(batch_size // 2)):
+            for batch_idx, batch in enumerate(
+                maps.vsplit(self.parent_trace.num_batches())
+            ):
                 for head_idx, heatmap in enumerate(batch):
                     self.parent_trace.heatmaps()[batch_idx].update(
                         self.layer_idx, head_idx, heatmap

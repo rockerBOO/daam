@@ -106,7 +106,7 @@ def compute_token_merge_indices(
     else:
         merge_idxs.append(word_idx)
 
-    return [x for x in merge_idxs], word_idx  # Offset by 1.
+    return [x + 1 for x in merge_idxs], word_idx  # Offset by 1.
 
 
 nlp = None

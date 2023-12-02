@@ -25,7 +25,7 @@ def test_compute_token_merge_indices_basic(sample_tokenizer):
     prompt = "This is a sample prompt"
     word = "sample"
     merge_idx, word_idx = compute_token_merge_indices(sample_tokenizer, prompt, word)
-    assert merge_idx == [3]
+    assert merge_idx == [4]
     assert word_idx is None
 
 
@@ -36,7 +36,7 @@ def test_compute_token_merge_indices_with_indices(sample_tokenizer):
     merge_idx, word_idx = compute_token_merge_indices(
         sample_tokenizer, prompt, word, word_idx=2, offset_idx=1
     )
-    assert merge_idx == [2]
+    assert merge_idx == [3]
     assert word_idx == 2
 
 
@@ -63,7 +63,7 @@ def test_compute_token_merge_indices_multiple_occurrences(sample_tokenizer):
     prompt = "This is a sample prompt with sample words. Another sample is here."
     word = "sample"
     merge_idx, word_idx = compute_token_merge_indices(sample_tokenizer, prompt, word)
-    assert merge_idx == [3, 6, 9]
+    assert merge_idx == [4, 7, 10]
     assert word_idx is None
 
 
@@ -74,7 +74,7 @@ def test_compute_token_merge_indices_offset(sample_tokenizer):
     merge_idx, word_idx = compute_token_merge_indices(
         sample_tokenizer, prompt, word, offset_idx=2
     )
-    assert merge_idx == [5]
+    assert merge_idx == [6]
     assert word_idx is None
 
 
@@ -83,7 +83,7 @@ def test_compute_token_merge_indices_word_case_insensitive(sample_tokenizer):
     prompt = "This is a Sample prompt"
     word = "sAmPle"
     merge_idx, word_idx = compute_token_merge_indices(sample_tokenizer, prompt, word)
-    assert merge_idx == [3]
+    assert merge_idx == [4]
     assert word_idx is None
 
 

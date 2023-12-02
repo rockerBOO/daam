@@ -24,7 +24,7 @@ def sample_tokenizer():
 @pytest.fixture
 def sample_heat_maps():
     # Sample heat maps tensor for testing
-    return [torch.randn((3, 5, 5)), torch.randn((3, 5, 5))]
+    return [torch.randn((4, 5, 5)), torch.randn((4, 5, 5))]
 
 
 @pytest.fixture
