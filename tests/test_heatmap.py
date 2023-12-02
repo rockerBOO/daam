@@ -30,7 +30,7 @@ def sample_heat_maps():
 @pytest.fixture
 def sample_global_heatmap(sample_tokenizer, sample_heat_maps):
     # Sample GlobalHeatMap for testing
-    return GlobalHeatMap(sample_tokenizer, "Test prompt word test", sample_heat_maps)
+    return GlobalHeatMap(sample_tokenizer, ["Test prompt word test", "word test"], sample_heat_maps)
 
 
 def test_compute_word_heat_map(sample_global_heatmap):
