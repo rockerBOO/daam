@@ -129,11 +129,15 @@ def main(args):
     )
 
     if args.model.lower() in ["segmind-1b", "sdxl"]:
+        vae = AutoencoderKL.from_pretrained(
+            "stabilityai/sdxl-vae", use_safetensors=True, torch_dtype=torch.float16
+        )
         pipe = StableDiffusionXLPipeline.from_pretrained(
             model_id,
             torch_dtype=torch.float16,
             use_safetensors=True,
             variant="fp16",
+            scheduler=scheduler,
         )
 
         print(pipe)
