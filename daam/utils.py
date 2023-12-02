@@ -7,7 +7,9 @@ from typing import TypeVar, Tuple, List, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
-import PIL.Image
+
+# import PIL.Image
+from PIL import Image
 import spacy
 import torch
 import torch.nn.functional as F
@@ -46,9 +48,7 @@ def auto_autocast(*args, **kwargs):
     return torch.cuda.amp.autocast(*args, **kwargs)
 
 
-def plot_mask_heat_map(
-    im: PIL.Image.Image, heat_map: torch.Tensor, threshold: float = 0.4
-):
+def plot_mask_heat_map(im: Image.Image, heat_map: torch.Tensor, threshold: float = 0.4):
     im = torch.from_numpy(np.array(im)).float() / 255
     mask = (heat_map.squeeze() > threshold).float()
     im = im * mask.unsqueeze(-1)
@@ -132,15 +132,19 @@ def cached_nlp(prompt: str, type="en_core_web_md"):
 def expand_image(
     heatmap, image, absolute=False, threshold=None, plot=False, **plot_kwargs
 ):
-    # type: (PIL.Image.Image, bool, float, bool, Dict[str, Any]) -> torch.Tensor
+    # type: (Image.Image, bool, float, bool, Dict[str, Any]) -> torch.Tensor
 
     # # remove batch and channel dimensions
     # # TODO maybe handle batch more appropriately
     # h = self.img_height // 8
     # w = self.img_width // 8
 
-    w = image.size[0]
-    h = image.size[1]
+    if isinstance(image, Image.Image):
+        w = image.size[0]
+        h = image.size[1]
+    elif isinstance(image, torch.Tensor):
+        w = image.size(2)
+        h = image.size(1)
 
     # shape 77, 1, 48, 80
     heatmap = heatmap.unsqueeze(0).unsqueeze(0)

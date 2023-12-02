@@ -76,10 +76,12 @@ class ObjectHooker(Generic[ModuleType]):
 
 class AggregateHooker(ObjectHooker[ModuleListType]):
     def _hook_impl(self):
+        # print("Hooking modules...")
         for h in self.module:
             h.hook()
 
     def _unhook_impl(self):
+        # print("Unhooking modules...")
         for h in self.module:
             h.unhook()
 

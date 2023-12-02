@@ -203,17 +203,17 @@ class ParsedHeatMap:
 
 
 class GlobalHeatMap:
-    def __init__(self, tokenizer: Any, prompt: str, heat_maps: List[torch.Tensor]):
+    def __init__(self, tokenizer: Any, prompts: List[str], heat_maps: List[torch.Tensor]):
         self.tokenizer = tokenizer
         self.heat_maps = heat_maps
-        self.prompt = prompt
+        self.prompts = prompts
         self.compute_word_heat_map = lru_cache(maxsize=50)(self.compute_word_heat_map)
 
     def compute_word_heat_map(
         self, word: str, word_idx: int = None, offset_idx: int = 0, batch_idx: int = 0
     ) -> WordHeatMap:
         merge_idxs, word_idx = compute_token_merge_indices(
-            self.tokenizer, self.prompt, word, word_idx, offset_idx
+            self.tokenizer, self.prompts[batch_idx], word, word_idx, offset_idx
         )
 
         # print(f"Prompt: {self.prompt}")

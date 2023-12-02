@@ -151,7 +151,7 @@ class DiffusionHeatMapHooker(AggregateHooker):
 
     def compute_global_heat_map(
         self,
-        prompt=None,
+        prompts: List[str] = [],
         batch_idx=None,
         head_idx=None,
         layer_idx=None,
@@ -173,10 +173,10 @@ class DiffusionHeatMapHooker(AggregateHooker):
         """
         batch_heat_maps = self.heatmaps()
 
-        assert prompt is not None or len(self.last_prompt) > 0
+        assert prompts is not None or len(self.last_prompts) > 0
 
-        if prompt is None:
-            prompt = self.last_prompt
+        if prompts is None:
+            prompts = self.last_prompts
 
         all_merges = []
 
@@ -220,7 +220,7 @@ class DiffusionHeatMapHooker(AggregateHooker):
         for i, maps in enumerate(all_maps):
             maps = maps.mean(0)[:, 0]
             maps = maps[
-                : len(self.tokenizer.tokenize(prompt)) + 2
+                : len(self.tokenizer.tokenize(prompts[i])) + 2
             ]  # 1 for SOS and 1 for padding
 
             if normalize:
@@ -232,7 +232,7 @@ class DiffusionHeatMapHooker(AggregateHooker):
             all_all_maps.append(maps)
 
         # print("all all maps", len(all_all_maps), [m.size() for m in all_all_maps])
-        return GlobalHeatMap(self.tokenizer, prompt, all_all_maps)
+        return GlobalHeatMap(self.tokenizer, prompts, all_all_maps)
 
 
 class VAEHooker(ObjectHooker[AutoencoderKL]):
@@ -443,6 +443,11 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         return hidden_states
 
     def _hook_impl(self):
+        # print("Hooking DAAM", self)
+
+        # import traceback
+        #
+        # traceback.print_stack()
         if hasattr(self.module, "processor") and callable(
             getattr(self.module, "processor")
         ):
@@ -452,6 +457,7 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
             self.monkey_patch("forward", comp_vis_attention(self, self.module))
 
     def _unhook_impl(self):
+        # print("Unhooking DAAM. ", self)
         if self.original_processor is not None:
             self.module.set_processor(self.original_processor)
         else:
