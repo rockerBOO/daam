@@ -1,12 +1,10 @@
-scikit-image
-diffusers==0.16.1
-spacy
-gradio
-ftfy
-transformers==4.27.4
+accelerate >= 0.21.0, < 1.0
+transformers >= 4.30, < 4.35
+diffusers[torch] >= 0.21, < 1.0
 pandas
 numba
 nltk
 inflect
 joblib
-accelerate==0.18.0
+ftfy
+spacy

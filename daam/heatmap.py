@@ -1,27 +1,110 @@
-from collections import defaultdict
+from collections import defaultdict, UserList
 from dataclasses import dataclass
 from functools import lru_cache
-from pathlib import Path
-from typing import List, Any, Dict, Tuple, Set, Iterable
+from typing import Any, Dict, Iterable, Set, Tuple
+import math
 
-from matplotlib import pyplot as plt
 import numpy as np
-import PIL.Image
 import spacy.tokens
 import torch
-import torch.nn.functional as F
+from matplotlib import pyplot as plt
+from PIL import Image
 
 from .evaluate import compute_ioa
-from .utils import compute_token_merge_indices, cached_nlp, auto_autocast
+from .utils import (
+    auto_autocast,
+    cached_nlp,
+    compute_token_merge_indices,
+    expand_image,
+    tensor2img,
+)
 
-__all__ = ['GlobalHeatMap', 'RawHeatMapCollection', 'WordHeatMap', 'ParsedHeatMap', 'SyntacticHeatMapPair']
+__all__ = [
+    "GlobalHeatMap",
+    "RawHeatMapCollection",
+    "WordHeatMap",
+    "ParsedHeatMap",
+    "SyntacticHeatMapPair",
+]
 
 
-def plot_overlay_heat_map(im, heat_map, word=None, out_file=None, crop=None, color_normalize=True, ax=None):
+# Get the current figure of a matplotlib
+# Making it more clear while learning
+def plot_to_current_figure():
+    return plt.gcf()
+
+
+# Get the PIL image from a plot figure or the current plot
+def fig2img(fig):
+    """Convert a Matplotlib figure to a PIL Image and return it"""
+    import io
+
+    buf = io.BytesIO()
+
+    fig.savefig(buf)
+    buf.seek(0)
+    img = Image.open(buf)
+    return img
+
+
+def disable_fig_axis(fig=None, plt_=None):
+    if fig is None:
+        fig = plot_to_current_figure()
+
+    if plt_ is None:
+        plt_ = plt
+
+    plt_.axis("off")  # turns off axes
+    plt_.axis("tight")  # gets rid of white border
+    # plt_.axis("image")  # square up the image instead of filling the "figure" space
+
+    # ax = plt.gca()
+    # ax.get_xaxis().set_visible(False)
+    # ax.get_yaxis().set_visible(False)
+    #
+    # plt_.tight_layout()
+
+    return fig
+
+
+@torch.no_grad()
+def plot_overlay_heat_map(
+    im, heat_map, word=None, out_file=None, crop=None, color_normalize=True, ax=None
+):
     # type: (PIL.Image.Image | np.ndarray, torch.Tensor, str, Path, int, bool, plt.Axes) -> None
     if ax is None:
+        dpi = 100
+        header_size = 40
+        scale = 1.1
+        plt.rcParams.update(
+            {
+                "font.size": 24,
+                "text.color": "#35A772",
+                "axes.labelcolor": "#35A772",
+                "figure.facecolor": "#021615",
+                "figure.figsize": (
+                    math.ceil((im.size[0] / dpi) * scale),
+                    math.ceil(((im.size[1] + header_size) / dpi) * scale),
+                ),
+                "figure.dpi": dpi,
+                "savefig.bbox": "tight",
+                "savefig.pad_inches": 0,
+                "figure.frameon": False,
+                "axes.spines.left": False,
+                "axes.spines.right": False,
+                "axes.spines.top": False,
+                "axes.spines.bottom": False,
+                "ytick.major.left": False,
+                "ytick.major.right": False,
+                "ytick.minor.left": False,
+                "xtick.major.top": False,
+                "xtick.major.bottom": False,
+                "xtick.minor.top": False,
+                "xtick.minor.bottom": False,
+            }
+        )
         plt.clf()
-        plt.rcParams.update({'font.size': 24})
+        plt.tight_layout()
         plt_ = plt
     else:
         plt_ = ax
@@ -29,18 +112,22 @@ def plot_overlay_heat_map(im, heat_map, word=None, out_file=None, crop=None, col
     with auto_autocast(dtype=torch.float32):
         im = np.array(im)
 
+        heat_map = heat_map.permute(1, 0)  # swap width/height to match numpy
+        # shape height, width
+
         if crop is not None:
-            heat_map = heat_map.squeeze()[crop:-crop, crop:-crop]
+            heat_map = heat_map[crop:-crop, crop:-crop]
             im = im[crop:-crop, crop:-crop]
 
         if color_normalize:
-            plt_.imshow(heat_map.squeeze().cpu().numpy(), cmap='jet')
+            plt_.imshow(heat_map.cpu().numpy(), cmap="jet")
         else:
             heat_map = heat_map.clamp_(min=0, max=1)
-            plt_.imshow(heat_map.squeeze().cpu().numpy(), cmap='jet', vmin=0.0, vmax=1.0)
+            plt_.imshow(heat_map.cpu().numpy(), cmap="jet", vmin=0.0, vmax=1.0)
 
         im = torch.from_numpy(im).float() / 255
         im = torch.cat((im, (1 - heat_map.unsqueeze(-1))), dim=-1)
+
         plt_.imshow(im)
 
         if word is not None:
@@ -50,7 +137,7 @@ def plot_overlay_heat_map(im, heat_map, word=None, out_file=None, crop=None, col
                 ax.set_title(word)
 
         if out_file is not None:
-            plt.savefig(out_file)
+            plt_.savefig(out_file)
 
 
 class WordHeatMap:
@@ -63,36 +150,40 @@ class WordHeatMap:
     def value(self):
         return self.heatmap
 
-    def plot_overlay(self, image, out_file=None, color_normalize=True, ax=None, **expand_kwargs):
+    def plot_overlay(
+        self, image, out_file=None, color_normalize=True, ax=None, **expand_kwargs
+    ):
         # type: (PIL.Image.Image | np.ndarray, Path, bool, plt.Axes, Dict[str, Any]) -> None
+
+        # print(
+        #     f"DAAM WordHeatMap {self} {image.size} {self.word} {self.word_idx} {len(self.heatmap)} {self.heatmap.size()}"
+        # )
         plot_overlay_heat_map(
             image,
             self.expand_as(image, **expand_kwargs),
             word=self.word,
             out_file=out_file,
             color_normalize=color_normalize,
-            ax=ax
+            ax=ax,
         )
 
-    def expand_as(self, image, absolute=False, threshold=None, plot=False, **plot_kwargs):
+    def expand_as(
+        self, image, absolute=False, threshold=None, plot=False, **plot_kwargs
+    ):
         # type: (PIL.Image.Image, bool, float, bool, Dict[str, Any]) -> torch.Tensor
-        im = self.heatmap.unsqueeze(0).unsqueeze(0)
-        im = F.interpolate(im.float().detach(), size=(image.size[0], image.size[1]), mode='bicubic')
-
-        if not absolute:
-            im = (im - im.min()) / (im.max() - im.min() + 1e-8)
-
-        if threshold:
-            im = (im > threshold).float()
-
-        im = im.cpu().detach().squeeze()
+        # print(
+        #     f"DAAM expand_as {self} {image.size} {self.word} {self.word_idx} {len(self.heatmap)} {self.heatmap.size()}"
+        # )
+        im = expand_image(
+            self.heatmap, image, absolute=absolute, threshold=threshold, plot=plot
+        )
 
         if plot:
             self.plot_overlay(image, **plot_kwargs)
 
         return im
 
-    def compute_ioa(self, other: 'WordHeatMap'):
+    def compute_ioa(self, other: "WordHeatMap"):
         return compute_ioa(self.heatmap, other.heatmap)
 
 
@@ -118,9 +209,18 @@ class GlobalHeatMap:
         self.prompt = prompt
         self.compute_word_heat_map = lru_cache(maxsize=50)(self.compute_word_heat_map)
 
-    def compute_word_heat_map(self, word: str, word_idx: int = None, offset_idx: int = 0) -> WordHeatMap:
-        merge_idxs, word_idx = compute_token_merge_indices(self.tokenizer, self.prompt, word, word_idx, offset_idx)
-        return WordHeatMap(self.heat_maps[merge_idxs].mean(0), word, word_idx)
+    def compute_word_heat_map(
+        self, word: str, word_idx: int = None, offset_idx: int = 0, batch_idx: int = 0
+    ) -> WordHeatMap:
+        merge_idxs, word_idx = compute_token_merge_indices(
+            self.tokenizer, self.prompt, word, word_idx, offset_idx
+        )
+
+        # print(f"DAAM WordHeatMap {self} {batch_idx} {merge_idxs} {word} {word_idx}")
+
+        return WordHeatMap(
+            self.heat_maps[batch_idx][merge_idxs].mean(0), word, word_idx
+        )
 
     def parsed_heat_maps(self) -> Iterable[ParsedHeatMap]:
         for token in cached_nlp(self.prompt):
@@ -132,12 +232,18 @@ class GlobalHeatMap:
 
     def dependency_relations(self) -> Iterable[SyntacticHeatMapPair]:
         for token in cached_nlp(self.prompt):
-            if token.dep_ != 'ROOT':
+            if token.dep_ != "ROOT":
                 try:
                     dep_heat_map = self.compute_word_heat_map(token.text)
                     head_heat_map = self.compute_word_heat_map(token.head.text)
 
-                    yield SyntacticHeatMapPair(head_heat_map, dep_heat_map, token.head.text, token.text, token.dep_)
+                    yield SyntacticHeatMapPair(
+                        head_heat_map,
+                        dep_heat_map,
+                        token.head.text,
+                        token.text,
+                        token.dep_,
+                    )
                 except ValueError:
                     pass
 
@@ -145,14 +251,30 @@ class GlobalHeatMap:
 RawHeatMapKey = Tuple[int, int, int]  # factor, layer, head
 
 
+class AggregateCollection(UserList):
+    def __init__(self, init_list):
+        self.data = init_list
+
+    def __len__(self):
+        return len(self.data)
+
+    def __setitem__(self, index, item):
+        self.data[index] = item
+
+    def append(self, item):
+        self.data.append(item)
+
+
 class RawHeatMapCollection:
     def __init__(self):
-        self.ids_to_heatmaps: Dict[RawHeatMapKey, torch.Tensor] = defaultdict(lambda: 0.0)
+        self.ids_to_heatmaps: Dict[RawHeatMapKey, torch.Tensor] = defaultdict(
+            lambda: 0.0
+        )
         self.ids_to_num_maps: Dict[RawHeatMapKey, int] = defaultdict(lambda: 0)
 
-    def update(self, factor: int, layer_idx: int, head_idx: int, heatmap: torch.Tensor):
+    def update(self, layer_idx: int, head_idx: int, heatmap: torch.Tensor):
         with auto_autocast(dtype=torch.float32):
-            key = (factor, layer_idx, head_idx)
+            key = (layer_idx, head_idx)
             self.ids_to_heatmaps[key] = self.ids_to_heatmaps[key] + heatmap
 
     def factors(self) -> Set[int]:
@@ -166,6 +288,9 @@ class RawHeatMapCollection:
 
     def __iter__(self):
         return iter(self.ids_to_heatmaps.items())
+
+    def __len__(self):
+        return len(self.ids_to_heatmaps.items())
 
     def clear(self):
         self.ids_to_heatmaps.clear()
