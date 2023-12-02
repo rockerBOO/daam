@@ -8,3 +8,4 @@ inflect
 joblib
 ftfy
 spacy
+matplotlib >= 3.6.2
