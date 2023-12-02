@@ -124,7 +124,7 @@ class DiffusionHeatMapHooker(AggregateHooker):
     def heatmaps(self):
         return self.all_heat_maps
 
-    def num_batches(self):
+    def batch_size(self):
         return len(self.all_heat_maps)
 
     def set_heatmaps(self, heatmaps):
@@ -179,10 +179,13 @@ class DiffusionHeatMapHooker(AggregateHooker):
         """
         batch_heat_maps = self.heatmaps()
 
-        assert prompts is not None or len(self.last_prompts) > 0
+        # assert prompts is not None or len(self.last_prompts) > 0
 
         if prompts is None:
             prompts = self.last_prompts
+
+        if len(prompts) != self.batch_size():
+            raise RuntimeError("Prompts does not match the batch size")
 
         all_merges = []
 
@@ -281,20 +284,15 @@ class PipelineHooker(ObjectHooker[StableDiffusionPipeline]):
     def _hooked_encode_prompt(
         hk_self,
         _: StableDiffusionPipeline,
-        prompt: Union[str, List[str]],
+        prompts: Union[str, List[str]],
         device,
-        num_images_per_prompt,
+        num_images_per_prompt: int,
         *args,
         **kwargs,
     ):
-        if not isinstance(prompt, str) and len(prompt) > 1:
-            raise ValueError(
-                "Only single prompt generation is supported for heat map computation."
-            )
-        elif not isinstance(prompt, str):
-            last_prompt = prompt[0]
-        else:
-            last_prompt = prompt
+        # We are adjusting the prompts to match the number of images per prompt
+        if len(prompts) != num_images_per_prompt:
+            prompts = prompts * (num_images_per_prompt - len(prompts))
 
         # # create batched heatmaps
         # hk_self.parent_trace.all_heat_maps =
@@ -306,9 +304,9 @@ class PipelineHooker(ObjectHooker[StableDiffusionPipeline]):
 
         # print("setup heatmaps collection", hk_self.parent_trace.heatmaps())
 
-        hk_self.parent_trace.last_prompt = last_prompt
+        hk_self.parent_trace.last_prompts = prompts
         ret = hk_self.monkey_super(
-            "encode_prompt", prompt, device, num_images_per_prompt, *args, **kwargs
+            "encode_prompt", prompts, device, num_images_per_prompt, *args, **kwargs
         )
 
         return ret
@@ -431,7 +429,7 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
             maps = self._unravel_attn(attention_probs)
 
             for batch_idx, batch in enumerate(
-                maps.vsplit(self.parent_trace.num_batches())
+                maps.vsplit(self.parent_trace.batch_size())
             ):
                 for head_idx, heatmap in enumerate(batch):
                     self.parent_trace.heatmaps()[batch_idx].update(

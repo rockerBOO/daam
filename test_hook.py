@@ -22,8 +22,6 @@ from diffusers import (
     KDPM2AncestralDiscreteScheduler,
     AutoencoderKL,
 )
-
-from diffusers.models.attention_processor import AttnProcessor2_0
 from tqdm import tqdm
 import numpy as np
 import torch
@@ -125,9 +123,7 @@ def main(args):
         **sched_init_args,
     )
 
-    vae = AutoencoderKL.from_pretrained(
-        "stabilityai/sd-vae-ft-mse", use_safetensors=True, torch_dtype=torch.float16
-    )
+    vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse")
 
     pipe = StableDiffusionPipeline.from_pretrained(
         model_id,
@@ -138,12 +134,7 @@ def main(args):
         scheduler=scheduler,
         vae=vae,
     )
-
-    pipe.unet.set_attn_processor(AttnProcessor2_0())
-
     pipe = auto_device(pipe)
-    # print("device", pipe.device)
-    # print("dtype", pipe.unet.dtype, pipe.text_encoder.dtype, pipe.vae.dtype)
 
     accelerator = accelerate.Accelerator()
 
@@ -158,39 +149,41 @@ def main(args):
 
             prompt_id = str(prompt_id)
 
-            with trace(
+            tracer = trace(
                 pipe,
+                # 512,
+                # 512,
                 args.width,
                 args.height,
                 low_memory=args.low_memory,
                 save_heads=args.save_heads,
                 load_heads=args.load_heads,
-            ) as tc:
-                out = pipe(
-                    prompt,
-                    width=args.width,
-                    height=args.height,
-                    num_images_per_prompt=args.batch_size,
-                    num_inference_steps=args.steps,
-                    guidance_scale=7.0,
-                    guidance_rescale=0.7,
-                    generator=gen,
-                )
+            )
 
-                global_heat_map = tc.compute_global_heat_map(prompts=prompt)
-                for i, img in enumerate(out.images):
-                    img_filename = f"{prompt_id}-{prompt}-{i:02d}.png"
-                    print(f"Saving image to {img_filename}")
-                    img.save(img_filename)
+            tracer.hook()
 
-                    for word in args.words.split(","):
-                        word = word.strip()
-                        heat_map = global_heat_map.compute_word_heat_map(
-                            word, batch_idx=i
-                        )
-                        daam_img_filename = f"{i:02d}-{word}-daam.png"
-                        print(f"Saving daam heatmap to {daam_img_filename}")
-                        heat_map.plot_overlay(img, out_file=daam_img_filename)
+            out = pipe(
+                prompt,
+                width=args.width,
+                height=args.height,
+                num_inference_steps=args.steps,
+                guidance_scale=7.0,
+                generator=gen,
+            )
+
+            img_filename = f"{prompt_id}-{prompt}.png"
+            print(f"Saving image to {img_filename}")
+            out.images[0].save(img_filename)
+
+            global_heat_map = tracer.compute_global_heat_map(prompt=prompt)
+            for word in args.words.split(","):
+                word = word.strip()
+                heat_map = global_heat_map.compute_word_heat_map(word)
+                daam_img_filename = f"{word}-daam.png"
+                print(f"Saving daam heatmap to {daam_img_filename}")
+                heat_map.plot_overlay(out.images[0], out_file=daam_img_filename)
+
+            tracer.unhook()
 
 
 if __name__ == "__main__":
@@ -213,7 +206,6 @@ if __name__ == "__main__":
     parser.add_argument("--steps", "-n", type=int, default=50)
     parser.add_argument("--width", type=int, default=512)
     parser.add_argument("--height", type=int, default=512)
-    parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--all-heads", action="store_true")
     parser.add_argument("--words", type=str)
     parser.add_argument("--random-seed", action="store_true")
