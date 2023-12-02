@@ -9,6 +9,7 @@ import time
 import pandas as pd
 from diffusers import (
     StableDiffusionPipeline,
+    StableDiffusionXLPipeline,
     DPMSolverMultistepScheduler,
     DDPMScheduler,
     EulerAncestralDiscreteScheduler,
@@ -49,6 +50,8 @@ model_id_map = {
     "v2-large": "stabilityai/stable-diffusion-2",
     "v2-1-base": "stabilityai/stable-diffusion-2-1-base",
     "v2-1-large": "stabilityai/stable-diffusion-2-1",
+    "segmind-1B": "segmind/SSD-1B",
+    "sdxl": "stabilityai/stable-diffusion-xl-base-1.0",
 }
 
 samplers = [
@@ -125,25 +128,35 @@ def main(args):
         **sched_init_args,
     )
 
-    vae = AutoencoderKL.from_pretrained(
-        "stabilityai/sd-vae-ft-mse", use_safetensors=True, torch_dtype=torch.float16
-    )
+    if args.model.lower() in ["segmind-1b", "sdxl"]:
+        pipe = StableDiffusionXLPipeline.from_pretrained(
+            model_id,
+            torch_dtype=torch.float16,
+            use_safetensors=True,
+            variant="fp16",
+        )
 
-    pipe = StableDiffusionPipeline.from_pretrained(
-        model_id,
-        torch_dtype=torch.float16,
-        use_safetensors=True,
-        variant="fp16",
-        safety_checker=None,
-        scheduler=scheduler,
-        vae=vae,
-    )
+        print(pipe)
+    else:
+        vae = AutoencoderKL.from_pretrained(
+            "stabilityai/sd-vae-ft-mse", use_safetensors=True, torch_dtype=torch.float16
+        )
+
+        pipe = StableDiffusionPipeline.from_pretrained(
+            model_id,
+            torch_dtype=torch.float16,
+            use_safetensors=True,
+            variant="fp16",
+            safety_checker=None,
+            scheduler=scheduler,
+            vae=vae,
+        )
 
     pipe.unet.set_attn_processor(AttnProcessor2_0())
 
     pipe = auto_device(pipe)
-    # print("device", pipe.device)
-    # print("dtype", pipe.unet.dtype, pipe.text_encoder.dtype, pipe.vae.dtype)
+    print("device", pipe.device)
+    print("dtype", pipe.unet.dtype, pipe.text_encoder.dtype, pipe.vae.dtype)
 
     accelerator = accelerate.Accelerator()
 

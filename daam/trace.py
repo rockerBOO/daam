@@ -1,11 +1,11 @@
 import math
 from pathlib import Path
-from typing import List, Type, Union
+from typing import List, Type, Union, Optional
 
 import PIL.Image as Image
 import torch
 import torch.nn.functional as F
-from diffusers import AutoencoderKL, StableDiffusionPipeline
+from diffusers import AutoencoderKL, StableDiffusionPipeline, StableDiffusionXLPipeline
 from diffusers.models.attention_processor import Attention
 from transformers.image_transforms import to_pil_image
 
@@ -31,7 +31,9 @@ __all__ = ["trace", "DiffusionHeatMapHooker", "GlobalHeatMap"]
 class DiffusionHeatMapHooker(AggregateHooker):
     def __init__(
         self,
-        pipeline: StableDiffusionPipeline = None,
+        pipeline: Optional[
+            Union[StableDiffusionPipeline, StableDiffusionXLPipeline]
+        ] = None,
         width: int = 512,
         height: int = 512,
         low_memory: bool = False,
@@ -55,7 +57,10 @@ class DiffusionHeatMapHooker(AggregateHooker):
             else AggregateCollection([RawHeatMapCollection()])
         )
 
-        if pipeline is not None and isinstance(pipeline, StableDiffusionPipeline):
+        if pipeline is not None and (
+            isinstance(pipeline, StableDiffusionPipeline)
+            or isinstance(pipeline, StableDiffusionXLPipeline)
+        ):
             self.unet = pipeline.unet
             self.vae = pipeline.vae
             self.tokenizer = pipeline.tokenizer
@@ -115,7 +120,10 @@ class DiffusionHeatMapHooker(AggregateHooker):
         ]
 
         if pipeline is not None:
-            modules.append(PipelineHooker(pipeline, self))
+            if isinstance(pipeline, StableDiffusionXLPipeline):
+                modules.append(PipelineXLHooker(pipeline, self))
+            else:
+                modules.append(PipelineHooker(pipeline, self))
 
         modules.append(VAEHooker(self.vae, self, self.image_processor))
 
@@ -184,8 +192,12 @@ class DiffusionHeatMapHooker(AggregateHooker):
         if prompts is None:
             prompts = self.last_prompts
 
+        prompts = [prompts] if isinstance(prompts, str) else prompts
+
         if len(prompts) != self.batch_size():
-            raise RuntimeError("Prompts does not match the batch size")
+            raise RuntimeError(
+                f"Prompts does not match the batch size. {len(prompts)} != {self.batch_size()}"
+            )
 
         all_merges = []
 
@@ -307,6 +319,60 @@ class PipelineHooker(ObjectHooker[StableDiffusionPipeline]):
         hk_self.parent_trace.last_prompts = prompts
         ret = hk_self.monkey_super(
             "encode_prompt", prompts, device, num_images_per_prompt, *args, **kwargs
+        )
+
+        return ret
+
+    def _hook_impl(self):
+        self.monkey_patch("encode_prompt", self._hooked_encode_prompt)
+
+
+class PipelineXLHooker(ObjectHooker[StableDiffusionXLPipeline]):
+    def __init__(self, pipeline: StableDiffusionXLPipeline, parent_trace: "trace"):
+        super().__init__(pipeline)
+        self.parent_trace = parent_trace
+
+    def _hooked_encode_prompt(
+        hk_self,
+        _: StableDiffusionXLPipeline,
+        prompt: Union[List[str], str],
+        prompt_2: Optional[Union[List[str], str]],
+        device,
+        num_images_per_prompt: int,
+        *args,
+        **kwargs,
+    ):
+        # The prompt or prompts to be sent to the `tokenizer_2` and `text_encoder_2`. If not defined, `prompt` is
+        # used in both text-encoders
+        if prompt_2 is None:
+            prompt = [prompt] if isinstance(prompt, str) else prompt
+            prompt_2 = [prompt_2] if isinstance(prompt_2, str) else prompt_2
+        else:
+            prompt = [prompt] if isinstance(prompt, str) else prompt
+
+        # We are adjusting the prompts to match the number of images per prompt
+        if len(prompt) != num_images_per_prompt:
+            prompt = prompt * (num_images_per_prompt - len(prompt))
+
+        # # create batched heatmaps
+        # hk_self.parent_trace.all_heat_maps =
+        hk_self.parent_trace.set_heatmaps(
+            AggregateCollection(
+                [RawHeatMapCollection() for _ in range(num_images_per_prompt)]
+            )
+        )
+
+        hk_self.parent_trace.last_prompts = prompt
+        hk_self.parent_trace.last_prompt = prompt
+        hk_self.parent_trace.last_prompt_2 = prompt_2
+        ret = hk_self.monkey_super(
+            "encode_prompt",
+            prompt,
+            prompt_2,
+            device,
+            num_images_per_prompt,
+            *args,
+            **kwargs,
         )
 
         return ret
