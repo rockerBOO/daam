@@ -1,5 +1,5 @@
 accelerate >= 0.21.0, < 1.0
-transformers >= 4.30, < 4.37
+transformers >= 4.30, < 4.38
 diffusers >= 0.21, < 1.0
 pandas
 numba
