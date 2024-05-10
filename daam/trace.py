@@ -440,7 +440,12 @@ class UNetCrossAttentionHooker(ObjectHooker[Attention]):
         with auto_autocast(dtype=torch.float32):
             for i, map_ in enumerate(x):
                 map_ = map_.view(map_.size(0), w, h)
-                map_ = map_[map_.size(0) // 2 :]  # Filter out unconditional
+                # For Instruct Pix2Pix, divide the map into three parts: text condition, image condition and unconditional,
+                # and only keep the text condition part, which is first of the three parts(as per diffusers implementation).
+                if map_.size(0) == 24:
+                    map_ = map_[:((map_.size(0) // 3)+1)]  # Filter out unconditional and image condition
+                else:
+                    map_ = map_[map_.size(0) // 2:] #  # Filter out unconditional
                 maps.append(map_)
 
         maps = torch.stack(maps, 0)  # shape: (tokens, heads, height, width)
